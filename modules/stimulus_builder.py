@@ -95,6 +95,8 @@ class StimulusBuilder:
             )
 
             word_audio, fs = sf.read(word_path)
+            if word_audio.ndim > 1:
+                word_audio = np.mean(word_audio, axis=1)
             word_audio = scale_to_system_calibration(
                 word_audio,
                 target_spl_word
@@ -123,6 +125,8 @@ class StimulusBuilder:
                 )
 
                 dist_audio, dist_fs = sf.read(dist_path)
+                if dist_audio.ndim > 1:
+                    dist_audio = np.mean(dist_audio, axis=1)
 
                 if dist_fs != fs:
                     new_len = int(len(dist_audio) * fs / dist_fs)
@@ -181,9 +185,9 @@ class StimulusBuilder:
 
             stimulus = stimulus + noise_stereo
 
-            max_val = np.max(np.abs(stimulus))
-            if max_val > 1.0:
-                stimulus = stimulus / max_val
+            # Do NOT renormalise here — calibration levels set by
+            # scale_to_system_calibration must be preserved exactly.
+            # Clipping is handled by the DAC; renormalising would destroy SNR.
 
             trial_data = {
                 "stimulus": stimulus,
