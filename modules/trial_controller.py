@@ -30,8 +30,10 @@ class TrialController:
         self._start_next_trial()
 
     def submit_response(self, response):
+        print(f"[TrialController] submit_response called, state={self.state}, response={response}")
 
         if self.state != "AWAITING_RESPONSE":
+            print(f"[TrialController] ignored — state is {self.state}")
             return
 
         trial_info   = self.trials[self.current_trial_index]
@@ -66,28 +68,27 @@ class TrialController:
             return
 
         trial_info = self.trials[self.current_trial_index]
+        print(f"[TrialController] starting trial {self.current_trial_index + 1} — word: {trial_info['word']}")
 
-        # Notify GUI — update word display, progress ring etc.
         if self.on_trial_ready:
             self.on_trial_ready(
-                trial_number  = self.current_trial_index + 1,
-                total_trials  = self.total_trials,
-                word          = trial_info["word"]
+                trial_number = self.current_trial_index + 1,
+                total_trials = self.total_trials,
+                word         = trial_info["word"]
             )
 
-        # Play audio in background thread so Qt GUI stays responsive.
-        # Response buttons are disabled until playback completes.
         stimulus = trial_info["stimulus"]
 
         def _play():
+            print(f"[TrialController] playback started for trial {self.current_trial_index}")
             recording = self.audio_engine.play_and_record(stimulus)
             self.last_recording = recording
-            # Switch to AWAITING_RESPONSE only after audio finishes
+            print(f"[TrialController] playback finished — signalling AWAITING_RESPONSE")
             QTimer.singleShot(0, self._on_playback_complete)
 
         t = threading.Thread(target=_play, daemon=True)
         t.start()
 
     def _on_playback_complete(self):
-        """Called on the Qt main thread after audio finishes playing."""
+        print(f"[TrialController] state → AWAITING_RESPONSE")
         self.state = "AWAITING_RESPONSE"
