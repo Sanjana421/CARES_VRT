@@ -66,8 +66,7 @@ class StimulusBuilder:
         target_ear,
         target_spl_word,
         target_spl_dist,
-        target_spl_noise,
-        distractor_condition=1
+        target_spl_noise
     ):
         trials = []
 
