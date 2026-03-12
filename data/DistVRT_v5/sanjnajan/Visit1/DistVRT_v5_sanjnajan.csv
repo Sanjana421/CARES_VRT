@@ -1,3 +1,0 @@
-ObsName,TimeStamp,VisitNum,WordLevel,NoiseCond,SNR,DistCond,DistLevel,DistTime,RunNum,TrialNum,StimTalker,ListNum,StimWord,DistPresent,DistItem,TargetSide,Response
-sanjnajan,DAT_26_03_03_14_24_39,1,42.5,1,0.0,1,44.7,99999,0,1,Female_2,1,lap,0,none,1,Correct
-sanjnajan,DAT_26_03_03_14_24_41,1,42.5,1,0.0,1,44.7,99999,0,2,Female_2,1,ham,0,none,1,Correct
