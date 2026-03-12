@@ -43,9 +43,10 @@ def main():
 
             nonlocal data_manager, current_setup
 
-            target_spl_noise = 52.9 - current_setup["snr"]
-            target_spl_word = 42.5
-            target_spl_dist = 44.7
+            # Calibrated 4/17/25 IU lab (SYSTEM_DB_SPL=82, offset=12.5)
+            target_spl_word  = 53.5
+            target_spl_dist  = 49.7
+            target_spl_noise = 45.4 - current_setup["snr"]
 
             stimuli = builder.build_list(
                 list_number=current_setup["list_number"],
@@ -105,8 +106,9 @@ def main():
 
             current_setup = setup_data
 
-            target_spl_word = 42.5
-            target_spl_dist = 44.7
+            # Calibrated 4/17/25 IU lab (SYSTEM_DB_SPL=82, offset=12.5)
+            target_spl_word  = 53.5
+            target_spl_dist  = 49.7
 
             data_manager = DataManager(
                 subject_id=setup_data["subject_id"],
