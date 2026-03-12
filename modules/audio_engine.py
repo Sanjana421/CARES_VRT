@@ -1,6 +1,7 @@
 import sounddevice as sd
 import numpy as np
 
+
 # MOTU multiple output channels testing
 # Run: python -c "import sounddevice as sd; [print(i, d['name']) for i, d in enumerate(sd.query_devices())]" - to verify these on any new machine.
 OUTPUT_MODE = "speakers"   # change to "headphones" for amplifier
@@ -26,7 +27,7 @@ class AudioEngine:
         recording = np.zeros((num_samples, 1), dtype=np.float32)
         idx = 0
 
-        def callback(outdata, indata, frames, time, status):
+        def callback(indata, outdata, frames, time, status):
             nonlocal idx
 
             end = idx + frames
@@ -46,7 +47,7 @@ class AudioEngine:
             samplerate=self.samplerate,
             blocksize=self.blocksize,
             device=(self.input_device, self.output_device),
-            channels=(1, 2),        # 1 input channel (mic), 2 output channels (word + dist)
+            channels=(2, 2),        # 2 in (MOTU stereo pair), 2 out (word + distractor)
             dtype='float32',
             callback=callback
         ) as stream:
