@@ -77,19 +77,18 @@ class DataManager:
         return False
 
     # ------------------------------------------------
-    # Overwrite Session
+    # Delete / Overwrite Session
     # ------------------------------------------------
-    def overwrite_session(self):
-
+    def delete_existing(self):
+        """Delete existing session data and reinitialise — called by main.py on overwrite."""
         if os.path.exists(self.base_folder):
             shutil.rmtree(self.base_folder)
-
         os.makedirs(self.base_folder, exist_ok=True)
         self._initialize_behavior_file()
 
-    def delete_existing(self):
-        """Alias for overwrite_session — called by main.py on overwrite confirm."""
-        self.overwrite_session()
+    def overwrite_session(self):
+        """Alias kept for compatibility."""
+        self.delete_existing()
 
     # ------------------------------------------------
     # Metadata Snapshot
