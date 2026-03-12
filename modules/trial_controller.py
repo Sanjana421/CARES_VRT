@@ -5,11 +5,9 @@ from PySide6.QtCore import QObject, Signal, QTimer
 class TrialController(QObject):
     """
     Runs audio in a background thread.
-    Uses a Qt Signal to safely notify the main thread when playback finishes,
-    so the GUI stays responsive and state transitions are thread-safe.
+    Uses Qt Signal to safely notify the main thread when playback finishes.
     """
 
-    # Emitted from background thread → received on main thread
     _playback_done = Signal()
 
     def __init__(self, trials, audio_engine):
@@ -20,23 +18,23 @@ class TrialController(QObject):
         self.current_trial_index = 0
         self.total_trials        = len(trials)
 
-        self.responses      = []
-        self.on_trial_ready = None
+        self.responses        = []
+        self.on_trial_ready   = None
         self.on_list_complete = None
-        self.data_manager   = None
-        self.last_recording = None
-        self.state          = "IDLE"
+        self.data_manager     = None
+        self.last_recording   = None
+        self.state            = "IDLE"
 
-        # Signal always delivered on main thread regardless of emitting thread
         self._playback_done.connect(self._on_playback_complete)
 
-    # ── public API ────────────────────────────────────────────────────────────
+    # ── public ───────────────────────────────────────────────────────────────
 
     def start_list(self):
         self.current_trial_index = 0
-        self.responses = []
-        self.state = "PLAYING"
-        self._start_next_trial()
+        self.responses           = []
+        self.state               = "PLAYING"
+        # MATLAB: pause(2) before first trial
+        QTimer.singleShot(2000, self._start_next_trial)
 
     def submit_response(self, response):
         if self.state != "AWAITING_RESPONSE":
@@ -74,6 +72,7 @@ class TrialController(QObject):
 
         trial_info = self.trials[self.current_trial_index]
 
+        # Update GUI on main thread before starting audio
         if self.on_trial_ready:
             self.on_trial_ready(
                 trial_number = self.current_trial_index + 1,
@@ -84,12 +83,12 @@ class TrialController(QObject):
         stimulus = trial_info["stimulus"]
 
         def _play():
-            recording = self.audio_engine.play_and_record(stimulus)
+            recording           = self.audio_engine.play_and_record(stimulus)
             self.last_recording = recording
-            self._playback_done.emit()   # safely wakes main thread
+            self._playback_done.emit()  # safely wakes main thread via Qt signal
 
         threading.Thread(target=_play, daemon=True).start()
 
     def _on_playback_complete(self):
-        # Always runs on the main Qt thread (connected via Signal)
+        # Always runs on main Qt thread — safe to update state and GUI
         self.state = "AWAITING_RESPONSE"
