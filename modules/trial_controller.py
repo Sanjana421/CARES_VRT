@@ -1,27 +1,36 @@
 import threading
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, Signal, QTimer
 
 
-class TrialController:
+class TrialController(QObject):
+    """
+    Runs audio in a background thread.
+    Uses a Qt Signal to safely notify the main thread when playback finishes,
+    so the GUI stays responsive and state transitions are thread-safe.
+    """
+
+    # Emitted from background thread → received on main thread
+    _playback_done = Signal()
 
     def __init__(self, trials, audio_engine):
+        super().__init__()
         self.trials       = trials
         self.audio_engine = audio_engine
 
         self.current_trial_index = 0
         self.total_trials        = len(trials)
 
-        self.responses = []
-
-        self.on_trial_ready   = None
+        self.responses      = []
+        self.on_trial_ready = None
         self.on_list_complete = None
-
         self.data_manager   = None
         self.last_recording = None
+        self.state          = "IDLE"
 
-        self.state = "IDLE"
+        # Signal always delivered on main thread regardless of emitting thread
+        self._playback_done.connect(self._on_playback_complete)
 
-    # ── public ───────────────────────────────────────────────────────────────
+    # ── public API ────────────────────────────────────────────────────────────
 
     def start_list(self):
         self.current_trial_index = 0
@@ -30,10 +39,7 @@ class TrialController:
         self._start_next_trial()
 
     def submit_response(self, response):
-        print(f"[TrialController] submit_response called, state={self.state}, response={response}")
-
         if self.state != "AWAITING_RESPONSE":
-            print(f"[TrialController] ignored — state is {self.state}")
             return
 
         trial_info   = self.trials[self.current_trial_index]
@@ -60,7 +66,6 @@ class TrialController:
     # ── internal ─────────────────────────────────────────────────────────────
 
     def _start_next_trial(self):
-
         if self.current_trial_index >= self.total_trials:
             self.state = "IDLE"
             if self.on_list_complete:
@@ -68,7 +73,6 @@ class TrialController:
             return
 
         trial_info = self.trials[self.current_trial_index]
-        print(f"[TrialController] starting trial {self.current_trial_index + 1} — word: {trial_info['word']}")
 
         if self.on_trial_ready:
             self.on_trial_ready(
@@ -80,15 +84,12 @@ class TrialController:
         stimulus = trial_info["stimulus"]
 
         def _play():
-            print(f"[TrialController] playback started for trial {self.current_trial_index}")
             recording = self.audio_engine.play_and_record(stimulus)
             self.last_recording = recording
-            print(f"[TrialController] playback finished — signalling AWAITING_RESPONSE")
-            QTimer.singleShot(0, self._on_playback_complete)
+            self._playback_done.emit()   # safely wakes main thread
 
-        t = threading.Thread(target=_play, daemon=True)
-        t.start()
+        threading.Thread(target=_play, daemon=True).start()
 
     def _on_playback_complete(self):
-        print(f"[TrialController] state → AWAITING_RESPONSE")
+        # Always runs on the main Qt thread (connected via Signal)
         self.state = "AWAITING_RESPONSE"
