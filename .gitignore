@@ -1,0 +1,23 @@
+﻿# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data files
+data/
+*.csv
+*.xlsx
+*.json
+
+# Build outputs
+dist/
+build/
+*.spec
+
+# OS files
+.DS_Store
+Thumbs.db

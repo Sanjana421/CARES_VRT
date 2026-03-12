@@ -1,0 +1,26 @@
+ObsName,TimeStamp,VisitNum,WordLevel,NoiseCond,SNR,DistCond,DistLevel,DistTime,RunNum,TrialNum,StimTalker,ListNum,StimWord,DistPresent,DistItem,TargetSide,Response
+sanjana reddy,DAT_26_03_02_14_26_08,1,42.5,1,0.0,0,44.7,99999,0,1,Female_2,1,feel,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_14,1,42.5,1,0.0,0,44.7,99999,0,2,Female_2,1,cloth,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_19,1,42.5,1,0.0,0,44.7,99999,0,3,Female_2,1,wind,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_22,1,42.5,1,0.0,0,44.7,99999,0,4,Female_2,1,few,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_25,1,42.5,1,0.0,0,44.7,4321,0,5,Female_2,1,vase,1,V-Garg3,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_30,1,42.5,1,0.0,0,44.7,99999,0,6,Female_2,1,ham,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_33,1,42.5,1,0.0,0,44.7,99999,0,7,Female_2,1,mouse,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_35,1,42.5,1,0.0,0,44.7,99999,0,8,Female_2,1,sheet,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_38,1,42.5,1,0.0,0,44.7,2285,0,9,Female_2,1,short,1,V-frog3,1,Correct
+sanjana reddy,DAT_26_03_02_14_26_40,1,42.5,1,0.0,0,44.7,99999,0,10,Female_2,1,face,0,none,1,Not Sure
+sanjana reddy,DAT_26_03_02_14_26_42,1,42.5,1,0.0,0,44.7,14146,0,11,Female_2,1,board,1,N-organ2,1,No Response
+sanjana reddy,DAT_26_03_02_14_26_47,1,42.5,1,0.0,0,44.7,99999,0,12,Female_2,1,lap,0,none,1,Incorrect
+sanjana reddy,DAT_26_03_02_14_26_50,1,42.5,1,0.0,0,44.7,3109,0,13,Female_2,1,nap,1,N-bikeb3,1,No Response
+sanjana reddy,DAT_26_03_02_14_26_53,1,42.5,1,0.0,0,44.7,99999,0,14,Female_2,1,road,0,none,1,Not Sure
+sanjana reddy,DAT_26_03_02_14_26_56,1,42.5,1,0.0,0,44.7,99999,0,15,Female_2,1,throat,0,none,1,Incorrect
+sanjana reddy,DAT_26_03_02_14_26_58,1,42.5,1,0.0,0,44.7,99999,0,16,Female_2,1,grade,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_01,1,42.5,1,0.0,0,44.7,99999,0,17,Female_2,1,path,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_04,1,42.5,1,0.0,0,44.7,99999,0,18,Female_2,1,peace,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_07,1,42.5,1,0.0,0,44.7,99999,0,19,Female_2,1,wolf,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_10,1,42.5,1,0.0,0,44.7,99999,0,20,Female_2,1,guide,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_14,1,42.5,1,0.0,0,44.7,99999,0,21,Female_2,1,tall,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_16,1,42.5,1,0.0,0,44.7,99999,0,22,Female_2,1,peg,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_19,1,42.5,1,0.0,0,44.7,4638,0,23,Female_2,1,rich,1,N-trump3,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_22,1,42.5,1,0.0,0,44.7,99999,0,24,Female_2,1,bath,0,none,1,Correct
+sanjana reddy,DAT_26_03_02_14_27_25,1,42.5,1,0.0,0,44.7,15528,0,25,Female_2,1,thick,1,V-sneez2,1,Correct
