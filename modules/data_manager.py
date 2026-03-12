@@ -87,6 +87,10 @@ class DataManager:
         os.makedirs(self.base_folder, exist_ok=True)
         self._initialize_behavior_file()
 
+    def delete_existing(self):
+        """Alias for overwrite_session — called by main.py on overwrite confirm."""
+        self.overwrite_session()
+
     # ------------------------------------------------
     # Metadata Snapshot
     # ------------------------------------------------
