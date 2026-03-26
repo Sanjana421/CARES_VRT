@@ -28,22 +28,22 @@ def main():
         child = ChildWindow()
 
         builder = StimulusBuilder(os.getcwd())
-        audio_engine = AudioEngine()
 
         # -----------------------------
         # SHARED STATE
         # -----------------------------
         current_setup = {}
         data_manager = None
+        audio_engine = None  
 
         # ----------------------------------------------------
         # FUNCTION TO BUILD + START A LIST
         # ----------------------------------------------------
         def build_and_start_list():
 
-            nonlocal data_manager, current_setup
+            nonlocal data_manager, current_setup, audio_engine
 
-            # Calibrated 4/17/25 IU lab (SYSTEM_DB_SPL=82, offset=12.5)
+            # Calibrated values
             target_spl_word  = 53.5
             target_spl_dist  = 49.7
             target_spl_noise = 45.4 - current_setup["snr"]
@@ -98,7 +98,7 @@ def main():
         # ----------------------------------------------------
         def on_start_clicked():
 
-            nonlocal current_setup, data_manager
+            nonlocal current_setup, data_manager, audio_engine
 
             setup_data = window.get_setup_data()
             if setup_data is None:
@@ -106,7 +106,9 @@ def main():
 
             current_setup = setup_data
 
-            # Calibrated 4/17/25 IU lab (SYSTEM_DB_SPL=82, offset=12.5)
+            audio_engine = AudioEngine(output_mode=setup_data["output_mode"])
+
+            # Calibrated values
             target_spl_word  = 53.5
             target_spl_dist  = 49.7
 
@@ -136,48 +138,11 @@ def main():
                 msg.setIcon(QMessageBox.Warning)
                 msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
                 msg.setDefaultButton(QMessageBox.No)
-                msg.button(QMessageBox.Yes).setText("  Overwrite  ")
-                msg.button(QMessageBox.No).setText("  Cancel  ")
-                msg.setStyleSheet("""
-                    QMessageBox {
-                        background-color: #FFF0F3;
-                        color: #3B0A1A;
-                    }
-                    QLabel {
-                        color: #3B0A1A;
-                        font-size: 13px;
-                        min-width: 380px;
-                    }
-                    QPushButton {
-                        border-radius: 8px;
-                        padding: 10px 28px;
-                        font-weight: bold;
-                        font-size: 13px;
-                        min-width: 110px;
-                    }
-                    QPushButton[text="  Overwrite  "] {
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 #AD1457, stop:1 #E91E63);
-                        color: white;
-                        border: none;
-                    }
-                    QPushButton[text="  Overwrite  "]:hover {
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 #C2185B, stop:1 #F06292);
-                    }
-                    QPushButton[text="  Cancel  "] {
-                        background-color: #FFF0F3;
-                        color: #AD1457;
-                        border: 2px solid #F48FB1;
-                    }
-                    QPushButton[text="  Cancel  "]:hover {
-                        background-color: #FCE4EC;
-                        border-color: #C2185B;
-                    }
-                """)
+
                 if msg.exec() != QMessageBox.Yes:
                     return
-                data_manager.delete_existing()
+
+                data_manager.overwrite_session()
 
             window.show_trial_mode()
             build_and_start_list()
@@ -190,10 +155,7 @@ def main():
             window.next_list_btn.setVisible(False)
             window.end_testing_btn.setVisible(False)
 
-            # Move to next list number automatically
             window.show_setup_mode()
-            
-            # Reset child display
             child.show_waiting_screen()
 
         # ----------------------------------------------------
