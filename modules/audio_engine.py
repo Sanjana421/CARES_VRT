@@ -11,7 +11,7 @@ class AudioEngine:
         self.samplerate = samplerate
         self.blocksize  = blocksize
 
-        # 🔥 EXPLICIT mapping (no globals, no logic)
+        
         if output_mode == "headphones":
             self.output_device = 20   # Out 1-2
             print("🎧 Output → HEADPHONES (Out 1–2)")
