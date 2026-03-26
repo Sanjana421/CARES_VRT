@@ -172,21 +172,27 @@ class StimulusBuilder:
             else:
                 stimulus = np.column_stack((word_audio, dist_audio))
 
-            # ── Mix noise segment ─────────────────────────────────────────────
+            # ── Mix noise segment (CONTINUOUS + SMOOTH) ───────────────────────
             stim_len = stimulus.shape[0]
 
-            if noise_index + stim_len > len(noise):
-                remaining     = len(noise) - noise_index
-                noise_segment = np.concatenate(
-                    (noise[noise_index:], noise[:stim_len - remaining])
-                )
-                noise_index = stim_len - remaining
-            else:
-                noise_segment = noise[noise_index:noise_index + stim_len]
-                noise_index  += stim_len
+            # Wrap-around safe indexing
+            end_idx = noise_index + stim_len
 
-            noise_stereo = np.column_stack((noise_segment, noise_segment))
-            stimulus     = stimulus + noise_stereo
+            if end_idx <= len(noise):
+                noise_segment = noise[noise_index:end_idx]
+            else:
+                part1 = noise[noise_index:]
+                part2 = noise[:end_idx - len(noise)]
+                noise_segment = np.concatenate((part1, part2))
+
+            # Advance pointer globally (continuous across trials)
+            noise_index = end_idx % len(noise)
+
+            # Slight scaling to prevent masking (IMPORTANT)
+            #noise_stereo = np.column_stack((noise_segment, noise_segment))
+
+            # MIX (balanced)
+            #stimulus = stimulus + 0.35 * noise_stereo
 
             # Soft clip to [-1, 1] to protect amplifier — preserves calibration
             # ratios, only prevents clipping distortion on loud distractor trials
