@@ -291,12 +291,32 @@ class RAWindow(QWidget):
         content = QVBoxLayout(); content.setContentsMargins(48,36,48,36); content.setSpacing(20)
 
         cc, cl = self._make_section_card("SESSION CONSTANTS")
-        self.subject_input = QLineEdit(); self.subject_input.setPlaceholderText("e.g.  P001")
+
+        self.subject_input = QLineEdit()
+        self.subject_input.setPlaceholderText("e.g.  P001")
         cl.addLayout(self._field_row("Subject ID", self.subject_input))
-        self.visit_spin = QSpinBox(); self.visit_spin.setMinimum(1); self.visit_spin.setMaximum(99)
+
+        self.visit_spin = QSpinBox()
+        self.visit_spin.setMinimum(1)
+        self.visit_spin.setMaximum(99)
         cl.addLayout(self._field_row("Visit Number", self.visit_spin))
-        ear_row, self.ear_group = self._radio_row("Target Ear", [("Left Ear",1),("Right Ear",2)])
-        cl.addLayout(ear_row); content.addWidget(cc)
+
+        # ✅ Target Ear
+        ear_row, self.ear_group = self._radio_row(
+            "Target Ear",
+            [("Left Ear", 1), ("Right Ear", 2)]
+        )
+        cl.addLayout(ear_row)
+
+        # ✅ Audio Output
+        output_row, self.output_group = self._radio_row(
+            "Audio Output",
+            [("Speakers", 0), ("Headphones", 1)]
+        )
+        cl.addLayout(output_row)
+
+        # 🔥 IMPORTANT: add card ONLY AFTER everything is added
+        content.addWidget(cc)
 
         dc, dl = self._make_section_card("SESSION DETAILS")
         self.run_spin = QSpinBox(); self.run_spin.setMinimum(0); self.run_spin.setMaximum(99)
@@ -397,6 +417,9 @@ class RAWindow(QWidget):
                 }
             """)
             msg.exec(); return None
+        
+        output_mode = "headphones" if self.output_group.checkedId() == 1 else "speakers"
+
         return {
             "subject_id":  self.subject_input.text().strip(),
             "visit":       self.visit_spin.value(),
@@ -405,6 +428,7 @@ class RAWindow(QWidget):
             "snr":         self.snr_spin.value(),
             "target_ear":  self.ear_group.checkedId(),
             "dist_cond":   self.dist_group.checkedId(),
+            "output_mode": output_mode
         }
 
     def update_trial_info(self, trial_number, total_trials, snr):
