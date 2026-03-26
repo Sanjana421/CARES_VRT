@@ -1,5 +1,7 @@
 import sys
 import os
+import soundfile as sf
+
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from modules.landing_window import LandingWindow
@@ -9,6 +11,7 @@ from modules.child_gui import ChildWindow
 from modules.stimulus_builder import StimulusBuilder
 from modules.audio_engine import AudioEngine
 from modules.trial_controller import TrialController
+from modules.calibration import scale_to_system_calibration
 
 
 def main():
@@ -34,7 +37,8 @@ def main():
         # -----------------------------
         current_setup = {}
         data_manager = None
-        audio_engine = None  
+        audio_engine = None
+        noise = None   # 🔥 keep noise globally
 
         # ----------------------------------------------------
         # FUNCTION TO BUILD + START A LIST
@@ -98,7 +102,7 @@ def main():
         # ----------------------------------------------------
         def on_start_clicked():
 
-            nonlocal current_setup, data_manager, audio_engine
+            nonlocal current_setup, data_manager, audio_engine, noise
 
             setup_data = window.get_setup_data()
             if setup_data is None:
@@ -106,7 +110,21 @@ def main():
 
             current_setup = setup_data
 
+            # 🔊 Initialize audio engine
             audio_engine = AudioEngine(output_mode=setup_data["output_mode"])
+
+            # 🔥 Load and prepare continuous noise ONCE
+            target_spl_noise = 45.4 - current_setup["snr"]
+
+            noise, fs = sf.read(os.path.join(os.getcwd(), "stim", "MTB_child.wav"))
+
+            if noise.ndim > 1:
+                noise = noise.mean(axis=1)
+
+            noise = scale_to_system_calibration(noise, target_spl_noise)
+
+            # 🔥 Start continuous noise
+            audio_engine.start_continuous_noise(noise)
 
             # Calibrated values
             target_spl_word  = 53.5
@@ -162,8 +180,16 @@ def main():
         # END TESTING BUTTON
         # ----------------------------------------------------
         def handle_end_testing():
+
+            nonlocal audio_engine
+
             window.next_list_btn.setVisible(False)
             window.end_testing_btn.setVisible(False)
+
+            # 🔥 Stop continuous noise
+            if audio_engine is not None:
+                audio_engine.stop_noise()
+
             window.show_session_complete()
             child.show_goodbye_screen()
 
