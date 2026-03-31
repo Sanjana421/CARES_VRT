@@ -20,7 +20,6 @@ def main():
     landing = LandingWindow()
 
     def launch_experiment():
-
         landing.close()
 
         window = RAWindow()
@@ -29,7 +28,6 @@ def main():
         window.showFullScreen()
 
         child = ChildWindow()
-
         builder = StimulusBuilder(os.getcwd())
 
         # -----------------------------
@@ -38,35 +36,28 @@ def main():
         current_setup = {}
         data_manager = None
         audio_engine = None
-        noise = None   # 🔥 keep noise globally
+        noise = None
 
         # ----------------------------------------------------
         # FUNCTION TO BUILD + START A LIST
         # ----------------------------------------------------
         def build_and_start_list():
-
             nonlocal data_manager, current_setup, audio_engine
 
-            # Calibrated values
-            target_spl_word  = 53.5
-            target_spl_dist  = 49.7
-            target_spl_noise = 45.4 - current_setup["snr"]
+            target_spl_word = 53.5
+            target_spl_dist = 49.7
 
             stimuli = builder.build_list(
                 list_number=current_setup["list_number"],
                 target_ear=current_setup["target_ear"],
                 target_spl_word=target_spl_word,
-                target_spl_dist=target_spl_dist,
-                target_spl_noise=target_spl_noise
+                target_spl_dist=target_spl_dist
             )
 
             controller = TrialController(stimuli, audio_engine)
             controller.data_manager = data_manager
             window.controller = controller
 
-            # ---------------------------------------
-            # CALLBACKS
-            # ---------------------------------------
             def handle_trial_ready(trial_number, total_trials, word):
                 window.update_trial_info(trial_number, total_trials, current_setup["snr"])
                 window.update_target_word(word)
@@ -88,20 +79,17 @@ def main():
             controller.on_trial_ready = handle_trial_ready
             controller.on_list_complete = handle_list_complete
 
-            # Reset child progress screen
             child.display_progress = 0
             child.current_progress = 0
             child.update()
             child.stacked_layout.setCurrentWidget(child.progress_page)
 
-            # Start list with countdown
             child.show_prepare_sequence(lambda: controller.start_list())
 
         # ----------------------------------------------------
         # START SESSION BUTTON
         # ----------------------------------------------------
         def on_start_clicked():
-
             nonlocal current_setup, data_manager, audio_engine, noise
 
             setup_data = window.get_setup_data()
@@ -110,25 +98,14 @@ def main():
 
             current_setup = setup_data
 
-            # 🔊 Initialize audio engine
+            if audio_engine is not None:
+                audio_engine.stop_noise()
+
             audio_engine = AudioEngine(output_mode=setup_data["output_mode"])
 
-            # 🔥 Load and prepare continuous noise ONCE
-            target_spl_noise = 45.4 - current_setup["snr"]
-
-            noise, fs = sf.read(os.path.join(os.getcwd(), "stim", "MTB_child.wav"))
-
-            if noise.ndim > 1:
-                noise = noise.mean(axis=1)
-
-            noise = scale_to_system_calibration(noise, target_spl_noise)
-
-            # 🔥 Start continuous noise
-            audio_engine.start_continuous_noise(noise)
-
-            # Calibrated values
-            target_spl_word  = 53.5
-            target_spl_dist  = 49.7
+            target_spl_word = 53.5
+            target_spl_dist = 49.7
+            target_spl_noise = 45.4 - setup_data["snr"]
 
             data_manager = DataManager(
                 subject_id=setup_data["subject_id"],
@@ -162,6 +139,13 @@ def main():
 
                 data_manager.overwrite_session()
 
+            noise, fs = sf.read(os.path.join(os.getcwd(), "stim", "MTB_child.wav"))
+            if noise.ndim > 1:
+                noise = noise.mean(axis=1)
+
+            noise = scale_to_system_calibration(noise, target_spl_noise)
+            audio_engine.start_continuous_noise(noise)
+
             window.show_trial_mode()
             build_and_start_list()
 
@@ -169,9 +153,14 @@ def main():
         # NEXT LIST BUTTON
         # ----------------------------------------------------
         def handle_next_list():
+            nonlocal audio_engine
 
             window.next_list_btn.setVisible(False)
             window.end_testing_btn.setVisible(False)
+
+            if audio_engine is not None:
+                audio_engine.stop_noise()
+                audio_engine = None
 
             window.show_setup_mode()
             child.show_waiting_screen()
@@ -180,15 +169,14 @@ def main():
         # END TESTING BUTTON
         # ----------------------------------------------------
         def handle_end_testing():
-
             nonlocal audio_engine
 
             window.next_list_btn.setVisible(False)
             window.end_testing_btn.setVisible(False)
 
-            # 🔥 Stop continuous noise
             if audio_engine is not None:
                 audio_engine.stop_noise()
+                audio_engine = None
 
             window.show_session_complete()
             child.show_goodbye_screen()
@@ -209,7 +197,6 @@ def main():
 
     landing.launch_full_btn.clicked.connect(launch_experiment)
     landing.exit_btn.clicked.connect(app.quit)
-
     landing.show()
 
     sys.exit(app.exec())
