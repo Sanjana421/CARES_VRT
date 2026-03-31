@@ -4,14 +4,10 @@ import threading
 
 
 class AudioEngine:
-
-    def __init__(self, samplerate=44100, blocksize=512,
-                 output_mode="speakers"):
-
+    def __init__(self, samplerate=44100, blocksize=512, output_mode="speakers"):
         self.samplerate = samplerate
-        self.blocksize  = blocksize
+        self.blocksize = blocksize
 
-        # 🔊 Device selection
         if output_mode == "headphones":
             self.output_device = 20   # Out 1-2
             print("🎧 Output → HEADPHONES (Out 1–2)")
@@ -27,9 +23,12 @@ class AudioEngine:
         self.noise_stream = None
         self.noise_idx = 0
 
-    # ─────────────────────────────────────────────────────────────
-    # 🔊 TEST AUDIO
-    # ─────────────────────────────────────────────────────────────
+        self._trial_thread = None
+        self._trial_stop = threading.Event()
+        self._trial_playback_done = threading.Event()
+        self._recording_chunks = []
+        self._trial_lock = threading.Lock()
+
     def play_test_tone(self, duration=1.0, freq=440):
         print("🔊 Playing test tone...")
 
@@ -45,14 +44,9 @@ class AudioEngine:
 
         print("✅ Test tone finished")
 
-    # ─────────────────────────────────────────────────────────────
-    # 🔊 CONTINUOUS BACKGROUND NOISE
-    # ─────────────────────────────────────────────────────────────
     def start_continuous_noise(self, noise):
-
         noise = np.asarray(noise, dtype=np.float32)
 
-        # 🔥 force mono → stereo later
         if noise.ndim > 1:
             noise = noise.mean(axis=1)
 
@@ -64,7 +58,7 @@ class AudioEngine:
 
             end = self.noise_idx + frames
 
-            if end < len(noise):
+            if end <= len(noise):
                 chunk = noise[self.noise_idx:end]
             else:
                 part1 = noise[self.noise_idx:]
@@ -73,9 +67,7 @@ class AudioEngine:
 
             self.noise_idx = end % len(noise)
 
-            # 🔥 scale noise here (IMPORTANT for balance)
             chunk = 0.3 * chunk
-
             outdata[:] = np.column_stack((chunk, chunk))
 
         self.noise_stream = sd.OutputStream(
@@ -97,54 +89,80 @@ class AudioEngine:
             self.noise_stream = None
             print("🔇 Noise stopped")
 
-    # ─────────────────────────────────────────────────────────────
-    # 🎧 MAIN PLAYBACK + RECORDING
-    # ─────────────────────────────────────────────────────────────
-    def play_and_record(self, stimulus):
-
+    def start_trial_capture(self, stimulus):
+        """
+        Start stimulus playback and begin recording input immediately.
+        Recording continues until stop_trial_capture() is called.
+        Returns an Event that is set when stimulus playback finishes.
+        """
         stimulus = np.asarray(stimulus, dtype=np.float32)
 
-        # 🔥 Ensure stereo
         if stimulus.ndim == 1:
             stimulus = np.column_stack((stimulus, stimulus))
 
-        num_samples = stimulus.shape[0]
-        recording   = np.zeros(num_samples, dtype=np.float32)
+        with self._trial_lock:
+            self._trial_stop.clear()
+            self._trial_playback_done.clear()
+            self._recording_chunks = []
 
-        idx  = 0
-        done = threading.Event()
+            num_samples = stimulus.shape[0]
+            idx = 0
 
-        def callback(indata, outdata, frames, time, status):
-            nonlocal idx
+            def callback(indata, outdata, frames, time, status):
+                nonlocal idx
 
-            if status:
-                print("⚠️ Audio status:", status)
+                if status:
+                    print("⚠️ Audio status:", status)
 
-            end = min(idx + frames, num_samples)
-            n   = end - idx
+                end = min(idx + frames, num_samples)
+                n = end - idx
 
-            outdata.fill(0)
+                outdata.fill(0)
 
-            if n > 0:
-                outdata[:n, :] = stimulus[idx:end, :]
+                if n > 0:
+                    outdata[:n, :] = stimulus[idx:end, :]
 
-            recording[idx:end] = indata[:n, 0]
+                # keep recording the mic while playback runs
+                self._recording_chunks.append(indata[:, 0].copy())
 
-            idx = end
+                idx = end
 
-            if idx >= num_samples:
-                done.set()
-                raise sd.CallbackStop()
+                if idx >= num_samples and not self._trial_playback_done.is_set():
+                    self._trial_playback_done.set()
 
-        with sd.Stream(
-            samplerate=self.samplerate,
-            blocksize=self.blocksize,
-            device=(self.input_device, self.output_device),
-            channels=(2, 2),
-            dtype='float32',
-            latency='low',
-            callback=callback
-        ):
-            done.wait()
+                if self._trial_stop.is_set():
+                    raise sd.CallbackStop()
 
-        return recording
+            def runner():
+                with sd.Stream(
+                    samplerate=self.samplerate,
+                    blocksize=self.blocksize,
+                    device=(self.input_device, self.output_device),
+                    channels=(2, 2),
+                    dtype='float32',
+                    latency='low',
+                    callback=callback
+                ):
+                    while not self._trial_stop.is_set():
+                        self._trial_stop.wait(0.05)
+
+            self._trial_thread = threading.Thread(target=runner, daemon=True)
+            self._trial_thread.start()
+
+            return self._trial_playback_done
+
+    def stop_trial_capture(self):
+        """
+        Stop the current trial recording and return the recorded mono input buffer.
+        """
+        with self._trial_lock:
+            self._trial_stop.set()
+
+            if self._trial_thread is not None:
+                self._trial_thread.join(timeout=2.0)
+                self._trial_thread = None
+
+            if not self._recording_chunks:
+                return np.empty(0, dtype=np.float32)
+
+            return np.concatenate(self._recording_chunks).astype(np.float32)
