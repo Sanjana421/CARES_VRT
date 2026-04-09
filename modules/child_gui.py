@@ -297,10 +297,11 @@ class ChildWindow(QWidget):
         self.stacked_layout.addWidget(self.questionnaire_page)
 
         self.questions = [
-            {"text":"How many words did you get right?",  "left_label":"None",     "right_label":"All",       "left_img":"sad.png",     "right_img":"happy.png"},
-            {"text":"How hard did you have to try?",      "left_label":"Not Hard", "right_label":"Very Hard", "left_img":"relaxed.png", "right_img":"stressed.png"},
-            {"text":"How long did it feel?",              "left_label":"Fast",     "right_label":"Forever",   "left_img":"rabbit.png",  "right_img":"turtle.png"},
-            {"text":"How hard was it to pay attention?",  "left_label":"Not Hard", "right_label":"Very Hard", "left_img":"focused.png", "right_img":"confused.png"},
+            {"text":"How many words did you get right?",  "left_label":"None of them",     "right_label":"All of them",       "left_img":"none.png",     "right_img":"tick.png"},
+            {"text":"How much did you want to do a good job?",      "left_label":"No didn’t care at all about doing a good job ", "right_label":"I really, really wanted to do a good job", "left_img":"sad.png", "right_img":"happy.png"},
+            {"text":"How hard did you have to try to get the words right? ",  "left_label":"Not hard at all", "right_label":"Very, very hard", "left_img":"not hard.png", "right_img":"very hard.png"},
+            {"text":"How long did that feel?",              "left_label":"It felt fast",     "right_label":"It took forever",   "left_img":"fast.png",  "right_img":"slow.png"},
+            
         ]
 
     def start_questionnaire(self, on_complete):
