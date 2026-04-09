@@ -40,7 +40,6 @@ class TrialController(QObject):
         trial_info = self.trials[self.current_trial_index]
         trial_number = self.current_trial_index + 1
 
-        # Stop recording now so the subject's spoken response is included
         recording = self.audio_engine.stop_trial_capture()
         self.last_recording = recording
 
