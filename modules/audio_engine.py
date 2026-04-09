@@ -1,6 +1,15 @@
-import sounddevice as sd
-import numpy as np
 import threading
+
+import numpy as np
+import sounddevice as sd
+
+from modules.calibration import scale_to_system_calibration
+
+
+# Adjust these only if your MOTU device indices change
+MOTU_HEADPHONES_OUT = 20
+MOTU_SPEAKERS_OUT = 18
+MOTU_INPUT_DEVICE = 22
 
 
 class AudioEngine:
@@ -9,19 +18,15 @@ class AudioEngine:
         self.blocksize = blocksize
 
         if output_mode == "headphones":
-            self.output_device = 20   # Out 1-2
-            print("🎧 Output → HEADPHONES (Out 1–2)")
+            self.output_device = MOTU_HEADPHONES_OUT
         else:
-            self.output_device = 18   # Out 3-4
-            print("🔊 Output → SPEAKERS (Out 3–4)")
+            self.output_device = MOTU_SPEAKERS_OUT
 
-        self.input_device = 22        # In 1-2
-
-        print(f"INPUT  DEVICE: {self.input_device} → {sd.query_devices(self.input_device)['name']}")
-        print(f"OUTPUT DEVICE: {self.output_device} → {sd.query_devices(self.output_device)['name']}")
+        self.input_device = MOTU_INPUT_DEVICE
 
         self.noise_stream = None
         self.noise_idx = 0
+        self.noise_buffer = None
 
         self._trial_thread = None
         self._trial_stop = threading.Event()
@@ -30,53 +35,62 @@ class AudioEngine:
         self._trial_lock = threading.Lock()
 
     def play_test_tone(self, duration=1.0, freq=440):
-        print("🔊 Playing test tone...")
-
         t = np.linspace(0, duration, int(self.samplerate * duration), endpoint=False)
-        tone = 0.3 * np.sin(2 * np.pi * freq * t)
+        tone = 0.3 * np.sin(2 * np.pi * freq * t).astype(np.float32)
 
+        stereo = np.column_stack((tone, tone))
         sd.play(
-            np.column_stack((tone, tone)),
+            stereo,
             samplerate=self.samplerate,
-            device=self.output_device
+            device=self.output_device,
         )
         sd.wait()
 
-        print("✅ Test tone finished")
-
-    def start_continuous_noise(self, noise):
+    def start_continuous_noise(self, noise, target_spl_noise=None):
+        """
+        Start continuous noise playback on the output device.
+        If target_spl_noise is provided, the noise is calibrated with the same
+        SPL scaling method as the speech/distractor stimuli.
+        """
         noise = np.asarray(noise, dtype=np.float32)
 
         if noise.ndim > 1:
             noise = noise.mean(axis=1)
 
+        if target_spl_noise is not None:
+            noise = scale_to_system_calibration(noise, target_spl_noise)
+
+        self.noise_buffer = noise
         self.noise_idx = 0
 
         def callback(outdata, frames, time, status):
             if status:
                 print("⚠️ Noise status:", status)
 
+            if self.noise_buffer is None or len(self.noise_buffer) == 0:
+                outdata.fill(0)
+                return
+
             end = self.noise_idx + frames
 
-            if end <= len(noise):
-                chunk = noise[self.noise_idx:end]
+            if end <= len(self.noise_buffer):
+                chunk = self.noise_buffer[self.noise_idx:end]
             else:
-                part1 = noise[self.noise_idx:]
-                part2 = noise[:end - len(noise)]
+                part1 = self.noise_buffer[self.noise_idx:]
+                part2 = self.noise_buffer[: end - len(self.noise_buffer)]
                 chunk = np.concatenate((part1, part2))
 
-            self.noise_idx = end % len(noise)
+            self.noise_idx = end % len(self.noise_buffer)
 
-            chunk = 0.3 * chunk
             outdata[:] = np.column_stack((chunk, chunk))
 
         self.noise_stream = sd.OutputStream(
             samplerate=self.samplerate,
             channels=2,
             device=self.output_device,
-            dtype='float32',
-            latency='low',
-            callback=callback
+            dtype="float32",
+            latency="low",
+            callback=callback,
         )
 
         self.noise_stream.start()
@@ -84,15 +98,18 @@ class AudioEngine:
 
     def stop_noise(self):
         if self.noise_stream is not None:
-            self.noise_stream.stop()
-            self.noise_stream.close()
-            self.noise_stream = None
-            print("🔇 Noise stopped")
+            try:
+                self.noise_stream.stop()
+                self.noise_stream.close()
+            finally:
+                self.noise_stream = None
+                self.noise_buffer = None
+                self.noise_idx = 0
+                print("🔇 Noise stopped")
 
     def start_trial_capture(self, stimulus):
         """
-        Start stimulus playback and begin recording input immediately.
-        Recording continues until stop_trial_capture() is called.
+        Start stimulus playback and record from the input at the same time.
         Returns an Event that is set when stimulus playback finishes.
         """
         stimulus = np.asarray(stimulus, dtype=np.float32)
@@ -122,7 +139,6 @@ class AudioEngine:
                 if n > 0:
                     outdata[:n, :] = stimulus[idx:end, :]
 
-                # keep recording the mic while playback runs
                 self._recording_chunks.append(indata[:, 0].copy())
 
                 idx = end
@@ -134,17 +150,21 @@ class AudioEngine:
                     raise sd.CallbackStop()
 
             def runner():
-                with sd.Stream(
-                    samplerate=self.samplerate,
-                    blocksize=self.blocksize,
-                    device=(self.input_device, self.output_device),
-                    channels=(2, 2),
-                    dtype='float32',
-                    latency='low',
-                    callback=callback
-                ):
-                    while not self._trial_stop.is_set():
-                        self._trial_stop.wait(0.05)
+                try:
+                    with sd.Stream(
+                        samplerate=self.samplerate,
+                        blocksize=self.blocksize,
+                        device=(self.input_device, self.output_device),
+                        channels=(2, 2),
+                        dtype="float32",
+                        latency="low",
+                        callback=callback,
+                    ):
+                        while not self._trial_stop.is_set():
+                            self._trial_stop.wait(0.05)
+                except Exception as e:
+                    print("❌ Trial stream error:", e)
+                    self._trial_playback_done.set()
 
             self._trial_thread = threading.Thread(target=runner, daemon=True)
             self._trial_thread.start()
