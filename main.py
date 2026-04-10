@@ -38,15 +38,18 @@ def main():
         current_setup = {}
         data_manager = None
         audio_engine = None
+        noise = None
 
         def build_and_start_list():
-            nonlocal data_manager, current_setup, audio_engine
+            nonlocal data_manager, current_setup, audio_engine, noise
 
-            # Current Python calibration values from your document
             target_spl_word = 38.5
             target_spl_dist = 37.5
             target_spl_noise_base = 35.9
             target_spl_noise = target_spl_noise_base - current_setup["snr"]
+
+            if audio_engine is not None and noise is not None:
+                audio_engine.set_continuous_noise(noise, target_spl_noise=target_spl_noise)
 
             stimuli = builder.build_list(
                 list_number=current_setup["list_number"],
@@ -68,12 +71,15 @@ def main():
             def on_questionnaire_complete(answers):
                 question_texts = [q["text"] for q in child.questions]
                 controller.data_manager.save_questionnaire(answers, question_texts)
-
                 window.next_list_btn.setVisible(True)
                 window.end_testing_btn.setVisible(True)
                 child.show_waiting_screen()
 
             def handle_list_complete(responses):
+                nonlocal audio_engine
+                if audio_engine is not None:
+                    audio_engine.stop_noise()
+
                 child.show_great_job_screen(
                     lambda: child.start_questionnaire(on_questionnaire_complete)
                 )
@@ -89,7 +95,7 @@ def main():
             child.show_prepare_sequence(lambda: controller.start_list())
 
         def on_start_clicked():
-            nonlocal current_setup, data_manager, audio_engine
+            nonlocal current_setup, data_manager, audio_engine, noise
 
             setup_data = window.get_setup_data()
             if setup_data is None:
@@ -141,10 +147,6 @@ def main():
 
             noise_path = os.path.join(os.getcwd(), "stim", "MTB_child.wav")
             noise, _ = _load_mono_audio(noise_path)
-
-            target_spl_noise_base = 35.9
-            target_spl_noise = target_spl_noise_base - setup_data["snr"]
-            audio_engine.start_continuous_noise(noise, target_spl_noise=target_spl_noise)
 
             window.show_trial_mode()
             build_and_start_list()
