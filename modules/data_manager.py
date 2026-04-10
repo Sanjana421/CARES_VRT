@@ -51,9 +51,6 @@ class DataManager:
 
         self._initialize_behavior_file()
 
-    # ------------------------------------------------
-    # Duplicate Check
-    # ------------------------------------------------
     def check_duplicate(self):
 
         if not os.path.exists(self.behavior_file):
@@ -76,9 +73,6 @@ class DataManager:
 
         return False
 
-    # ------------------------------------------------
-    # Delete / Overwrite Session
-    # ------------------------------------------------
     def delete_existing(self):
         """Delete existing session data and reinitialise — called by main.py on overwrite."""
         if os.path.exists(self.base_folder):
@@ -90,9 +84,6 @@ class DataManager:
         """Alias kept for compatibility."""
         self.delete_existing()
 
-    # ------------------------------------------------
-    # Metadata Snapshot
-    # ------------------------------------------------
     def save_metadata(self):
 
         metadata = {
@@ -113,9 +104,6 @@ class DataManager:
         with open(self.metadata_file, "w") as f:
             json.dump(metadata, f, indent=4)
 
-    # ------------------------------------------------
-    # Initialize CSV
-    # ------------------------------------------------
     def _initialize_behavior_file(self):
 
         if not os.path.exists(self.behavior_file):
@@ -128,9 +116,6 @@ class DataManager:
                 )
                 f.write(header)
 
-    # ------------------------------------------------
-    # Save Trial
-    # ------------------------------------------------
     def save_trial(self, trial_number, trial_info, response, recording, fs):
 
         timestamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
@@ -170,9 +155,6 @@ class DataManager:
         wav_path = os.path.join(self.base_folder, wav_name)
         sf.write(wav_path, recording, fs)
 
-    # ------------------------------------------------
-    # Save Questionnaire
-    # ------------------------------------------------
     def save_questionnaire(self, answers, question_texts):
 
         timestamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
