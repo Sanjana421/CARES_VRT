@@ -6,27 +6,21 @@ import sounddevice as sd
 from modules.calibration import scale_to_system_calibration
 
 
-# Adjust these only if your MOTU device indices change
-MOTU_HEADPHONES_OUT = 20
-MOTU_SPEAKERS_OUT = 18
-MOTU_INPUT_DEVICE = 22
+# in modules/audio_engine.py
+OUTPUT_MODE = "speakers"
+MOTU_OUTPUT_DEVICE = 18   # use your verified speakers output
+MOTU_INPUT_DEVICE = 22    # use your verified mic input
 
 
 class AudioEngine:
     def __init__(self, samplerate=44100, blocksize=512, output_mode="speakers"):
         self.samplerate = samplerate
         self.blocksize = blocksize
-
-        if output_mode == "headphones":
-            self.output_device = MOTU_HEADPHONES_OUT
-        else:
-            self.output_device = MOTU_SPEAKERS_OUT
-
+        self.output_device = MOTU_OUTPUT_DEVICE if output_mode == "speakers" else MOTU_OUTPUT_DEVICE
         self.input_device = MOTU_INPUT_DEVICE
 
-        self.noise_stream = None
-        self.noise_idx = 0
         self.noise_buffer = None
+        self.noise_idx = 0
 
         self._trial_thread = None
         self._trial_stop = threading.Event()
@@ -46,11 +40,10 @@ class AudioEngine:
         )
         sd.wait()
 
-    def start_continuous_noise(self, noise, target_spl_noise=None):
+    def set_continuous_noise(self, noise, target_spl_noise=None):
         """
-        Start continuous noise playback on the output device.
-        If target_spl_noise is provided, the noise is calibrated with the same
-        SPL scaling method as the speech/distractor stimuli.
+        Store calibrated noise for mixing into the trial stream.
+        No separate output stream is opened.
         """
         noise = np.asarray(noise, dtype=np.float32)
 
@@ -63,53 +56,34 @@ class AudioEngine:
         self.noise_buffer = noise
         self.noise_idx = 0
 
-        def callback(outdata, frames, time, status):
-            if status:
-                print("⚠️ Noise status:", status)
-
-            if self.noise_buffer is None or len(self.noise_buffer) == 0:
-                outdata.fill(0)
-                return
-
-            end = self.noise_idx + frames
-
-            if end <= len(self.noise_buffer):
-                chunk = self.noise_buffer[self.noise_idx:end]
-            else:
-                part1 = self.noise_buffer[self.noise_idx:]
-                part2 = self.noise_buffer[: end - len(self.noise_buffer)]
-                chunk = np.concatenate((part1, part2))
-
-            self.noise_idx = end % len(self.noise_buffer)
-
-            outdata[:] = np.column_stack((chunk, chunk))
-
-        self.noise_stream = sd.OutputStream(
-            samplerate=self.samplerate,
-            channels=2,
-            device=self.output_device,
-            dtype="float32",
-            latency="low",
-            callback=callback,
-        )
-
-        self.noise_stream.start()
-        print("🔊 Continuous noise started")
-
     def stop_noise(self):
-        if self.noise_stream is not None:
-            try:
-                self.noise_stream.stop()
-                self.noise_stream.close()
-            finally:
-                self.noise_stream = None
-                self.noise_buffer = None
-                self.noise_idx = 0
-                print("🔇 Noise stopped")
+        """
+        Keep compatibility with the rest of the app.
+        Noise is no longer a separate stream.
+        """
+        self.noise_buffer = None
+        self.noise_idx = 0
+
+    def _get_noise_chunk(self, frames):
+        if self.noise_buffer is None or len(self.noise_buffer) == 0:
+            return np.zeros(frames, dtype=np.float32)
+
+        end = self.noise_idx + frames
+
+        if end <= len(self.noise_buffer):
+            chunk = self.noise_buffer[self.noise_idx:end]
+        else:
+            part1 = self.noise_buffer[self.noise_idx:]
+            part2 = self.noise_buffer[: end - len(self.noise_buffer)]
+            chunk = np.concatenate((part1, part2))
+
+        self.noise_idx = end % len(self.noise_buffer)
+        return chunk.astype(np.float32)
 
     def start_trial_capture(self, stimulus):
         """
         Start stimulus playback and record from the input at the same time.
+        The calibrated continuous noise is mixed into the same output stream.
         Returns an Event that is set when stimulus playback finishes.
         """
         stimulus = np.asarray(stimulus, dtype=np.float32)
@@ -138,6 +112,11 @@ class AudioEngine:
 
                 if n > 0:
                     outdata[:n, :] = stimulus[idx:end, :]
+
+                if self.noise_buffer is not None and len(self.noise_buffer) > 0:
+                    noise_chunk = self._get_noise_chunk(frames)
+                    outdata[:] = outdata + np.column_stack((noise_chunk, noise_chunk))
+                    outdata[:] = np.clip(outdata, -1.0, 1.0)
 
                 self._recording_chunks.append(indata[:, 0].copy())
 
