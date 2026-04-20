@@ -14,16 +14,6 @@ from PySide6.QtCore import Qt
 # QFont controls text appearance such as size, weight, and family.
 from PySide6.QtGui import QFont
 
-
-# Global stylesheet for the research assistant interface.
-#
-# Notes for MATLAB users:
-# - This is similar to defining a consistent UIFigure/App style once and
-#   applying it to all controls.
-# - Object names such as QFrame#header-bar target specific widgets by name,
-#   similar to styling specific UI components rather than all components.
-# - Transparent defaults are important here because Qt otherwise lets many
-#   child widgets inherit solid background fills that can cover labels.
 GLOBAL_STYLE = """
 /* ── Transparent-by-default: prevents text/background overlap issues ─────── */
 QWidget      { background-color: transparent; color: #2D0A14;
