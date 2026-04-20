@@ -1,25 +1,31 @@
+# PySide6 widgets are the building blocks of the GUI.
+# This set is similar to assembling a MATLAB App Designer interface using
+# containers, text labels, inputs, buttons, and layouts.
 from PySide6.QtWidgets import (
     QWidget, QLabel, QPushButton, QLineEdit,
     QVBoxLayout, QHBoxLayout, QSpinBox, QDoubleSpinBox,
     QMessageBox, QStackedLayout, QFrame, QProgressBar,
     QRadioButton, QButtonGroup, QSizePolicy, QScrollArea
 )
+
+# Qt core tools used for alignment, styling flags, and widget behavior.
 from PySide6.QtCore import Qt
+
+# QFont controls text appearance such as size, weight, and family.
 from PySide6.QtGui import QFont
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  ROOT CAUSE OF THE BROKEN SCREENSHOT:
-#  "QWidget { background-color: X; }" matches EVERY QWidget subclass —
-#  QLabel, QFrame, QRadioButton, etc. — so each one paints a solid rectangle
-#  over its text.  The fix is:
-#    1. Scope the background rule to the named root widget only.
-#    2. Add "background-color: transparent;" to QLabel / QFrame / QRadioButton
-#       so they never inherit a solid fill.
-#    3. Cards and bars that DO need a background use setAttribute(WA_StyledBackground).
-# ─────────────────────────────────────────────────────────────────────────────
 
+# Global stylesheet for the research assistant interface.
+#
+# Notes for MATLAB users:
+# - This is similar to defining a consistent UIFigure/App style once and
+#   applying it to all controls.
+# - Object names such as QFrame#header-bar target specific widgets by name,
+#   similar to styling specific UI components rather than all components.
+# - Transparent defaults are important here because Qt otherwise lets many
+#   child widgets inherit solid background fills that can cover labels.
 GLOBAL_STYLE = """
-/* ── Transparent-by-default: fixes label/frame rectangle bug ─────────────── */
+/* ── Transparent-by-default: prevents text/background overlap issues ─────── */
 QWidget      { background-color: transparent; color: #2D0A14;
                font-family: "Segoe UI", "SF Pro Display", Arial, sans-serif; }
 QLabel       { background-color: transparent; }
@@ -199,32 +205,56 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 
 
 class RAWindow(QWidget):
+    """
+    Research assistant control window.
+
+    This interface supports two main modes:
+    - session setup, where the experiment parameters are entered,
+    - trial control, where the current stimulus and responses are managed.
+    """
 
     def __init__(self):
         super().__init__()
+
+        # Window title shown in the application frame.
         self.setWindowTitle("DistVRT — Research Assistant")
+
+        # Initial window size for desktop use.
         self.resize(1440, 900)
         self.setMinimumSize(1100, 720)
+
+        # Apply the full visual style sheet defined above.
         self.setStyleSheet(GLOBAL_STYLE)
-        # Give the root window itself a background
+
+        # Give the root widget a named background so the page background style applies.
         self.setObjectName("page-bg")
         self.setAttribute(Qt.WA_StyledBackground, True)
 
+        # Optional controller object can be attached by the main application.
         self.controller = None
+
+        # Stacked layout allows switching between setup and trial pages
+        # without opening a new window.
         self.stacked_layout = QStackedLayout()
         self.setLayout(self.stacked_layout)
+
+        # Build both major pages once at startup.
         self._build_setup_ui()
         self._build_trial_ui()
+
+        # Start in setup mode.
         self.show_setup_mode()
 
     # ── Helper: make header ───────────────────────────────────────────────────
 
     def _make_header(self, screen_name):
+        # Header wrapper groups the title bar and accent strip together.
         wrapper = QWidget()
         wl = QVBoxLayout(wrapper)
         wl.setContentsMargins(0, 0, 0, 0)
         wl.setSpacing(0)
 
+        # Main gradient bar containing the title and page label.
         bar = QFrame()
         bar.setObjectName("header-bar")
         bar.setAttribute(Qt.WA_StyledBackground, True)
@@ -252,6 +282,7 @@ class RAWindow(QWidget):
         bl.addWidget(badge)
         wl.addWidget(bar)
 
+        # Thin accent strip beneath the header improves page separation.
         accent = QFrame()
         accent.setObjectName("accent-bar")
         accent.setAttribute(Qt.WA_StyledBackground, True)
@@ -262,6 +293,7 @@ class RAWindow(QWidget):
     # ── Helper: make section card ─────────────────────────────────────────────
 
     def _make_section_card(self, label_text):
+        # Standard card container used throughout the interface.
         card = QFrame()
         card.setObjectName("section-card")
         card.setAttribute(Qt.WA_StyledBackground, True)
@@ -283,26 +315,34 @@ class RAWindow(QWidget):
     # ── Helper: field rows ────────────────────────────────────────────────────
 
     def _field_row(self, label_text, widget):
+        # Standard label + input row for session configuration fields.
         row = QHBoxLayout()
         row.setSpacing(20)
+
         lbl = QLabel(label_text.upper())
         lbl.setObjectName("field-label")
         lbl.setFixedWidth(190)
         lbl.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
         row.addWidget(lbl)
         row.addWidget(widget, stretch=1)
         return row
 
     def _radio_row(self, label_text, options):
+        # Standard label + radio-button row for categorical settings.
         row = QHBoxLayout()
         row.setSpacing(20)
+
         lbl = QLabel(label_text.upper())
         lbl.setObjectName("field-label")
         lbl.setFixedWidth(190)
         lbl.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+
+        # QButtonGroup is used to track which radio option is selected.
         group = QButtonGroup()
         btn_row = QHBoxLayout()
         btn_row.setSpacing(28)
+
         first = True
         for text, btn_id in options:
             rb = QRadioButton(text)
@@ -311,6 +351,7 @@ class RAWindow(QWidget):
                 first = False
             group.addButton(rb, btn_id)
             btn_row.addWidget(rb)
+
         btn_row.addStretch()
         row.addWidget(lbl)
         row.addLayout(btn_row, stretch=1)
@@ -319,6 +360,7 @@ class RAWindow(QWidget):
     # ── Setup page ────────────────────────────────────────────────────────────
 
     def _build_setup_ui(self):
+        # Setup page collects all session parameters before testing begins.
         page = QWidget()
         page.setObjectName("page-bg")
         page.setAttribute(Qt.WA_StyledBackground, True)
@@ -328,7 +370,7 @@ class RAWindow(QWidget):
         outer.setSpacing(0)
         outer.addWidget(self._make_header("Session Setup"))
 
-        # Scrollable body
+        # Scroll area keeps the setup page usable at smaller screen sizes.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -341,14 +383,16 @@ class RAWindow(QWidget):
         content.setContentsMargins(52, 36, 52, 36)
         content.setSpacing(20)
 
-        # Card 1
+        # Card 1: session constants.
         cc, cl = self._make_section_card("SESSION CONSTANTS")
+
         self.subject_input = QLineEdit()
         self.subject_input.setPlaceholderText("e.g.  P001")
         cl.addLayout(self._field_row("Subject ID", self.subject_input))
 
         self.visit_spin = QSpinBox()
-        self.visit_spin.setMinimum(1); self.visit_spin.setMaximum(99)
+        self.visit_spin.setMinimum(1)
+        self.visit_spin.setMaximum(99)
         cl.addLayout(self._field_row("Visit Number", self.visit_spin))
 
         ear_row, self.ear_group = self._radio_row("Target Ear", [("Left Ear", 1), ("Right Ear", 2)])
@@ -356,46 +400,58 @@ class RAWindow(QWidget):
 
         output_row, self.output_group = self._radio_row("Audio Output", [("Speakers", 0), ("Headphones", 1)])
         cl.addLayout(output_row)
+
         content.addWidget(cc)
 
-        # Card 2
+        # Card 2: session details.
         dc, dl = self._make_section_card("SESSION DETAILS")
+
         self.run_spin = QSpinBox()
-        self.run_spin.setMinimum(0); self.run_spin.setMaximum(99)
+        self.run_spin.setMinimum(0)
+        self.run_spin.setMaximum(99)
         dl.addLayout(self._field_row("Run Number", self.run_spin))
 
         self.list_spin = QSpinBox()
-        self.list_spin.setMinimum(1); self.list_spin.setMaximum(99)
+        self.list_spin.setMinimum(1)
+        self.list_spin.setMaximum(99)
         dl.addLayout(self._field_row("List Number", self.list_spin))
 
         self.snr_spin = QDoubleSpinBox()
-        self.snr_spin.setRange(-30.0, 30.0); self.snr_spin.setDecimals(1)
-        self.snr_spin.setSingleStep(0.5); self.snr_spin.setSuffix("  dB")
+        self.snr_spin.setRange(-30.0, 30.0)
+        self.snr_spin.setDecimals(1)
+        self.snr_spin.setSingleStep(0.5)
+        self.snr_spin.setSuffix("  dB")
         dl.addLayout(self._field_row("SNR", self.snr_spin))
 
         dist_row, self.dist_group = self._radio_row("Distractor Condition", [("No", 0), ("Yes", 1)])
         dl.addLayout(dist_row)
+
         content.addWidget(dc)
 
+        # Session start button.
         content.addSpacing(12)
         btn_row = QHBoxLayout()
         btn_row.addStretch()
+
         self.start_button = QPushButton("START SESSION  ▶")
         self.start_button.setObjectName("start-btn")
         self.start_button.setCursor(Qt.PointingHandCursor)
         btn_row.addWidget(self.start_button)
+
         btn_row.addStretch()
         content.addLayout(btn_row)
         content.addStretch()
 
         scroll.setWidget(inner)
         outer.addWidget(scroll, stretch=1)
+
         self.setup_widget = page
         self.stacked_layout.addWidget(page)
 
     # ── Trial page ────────────────────────────────────────────────────────────
 
     def _build_trial_ui(self):
+        # Trial page is used during active testing and response logging.
         page = QWidget()
         page.setObjectName("page-bg")
         page.setAttribute(Qt.WA_StyledBackground, True)
@@ -409,31 +465,48 @@ class RAWindow(QWidget):
         body.setContentsMargins(48, 32, 48, 32)
         body.setSpacing(28)
 
-        # Left column
+        # Left column: trial status, target word, and progress bar.
         left = QVBoxLayout()
         left.setSpacing(18)
 
         stat_row = QHBoxLayout()
         stat_row.setSpacing(0)
+
+        # Create the status display using a compact loop.
+        # This is similar to building repeated UI blocks in MATLAB with a helper function.
         for attr_name, lbl_txt, obj_name in [
             ("trial_label", "TRIAL", "trial-stat-val"),
             (None, None, None),
             ("snr_label", "SNR", "snr-stat-val"),
         ]:
             if attr_name is None:
-                stat_row.addStretch(); continue
-            col = QVBoxLayout(); col.setSpacing(3)
-            k = QLabel(lbl_txt); k.setObjectName("trial-stat-key")
-            v = QLabel("—"); v.setObjectName(obj_name)
+                stat_row.addStretch()
+                continue
+
+            col = QVBoxLayout()
+            col.setSpacing(3)
+
+            k = QLabel(lbl_txt)
+            k.setObjectName("trial-stat-key")
+
+            v = QLabel("—")
+            v.setObjectName(obj_name)
             v.setFont(QFont("Segoe UI", 22, QFont.Bold))
+
             setattr(self, attr_name, v)
-            col.addWidget(k); col.addWidget(v)
+
+            col.addWidget(k)
+            col.addWidget(v)
             stat_row.addLayout(col)
+
         left.addLayout(stat_row)
 
-        wc = QFrame(); wc.setObjectName("word-card")
+        # Target word display card.
+        wc = QFrame()
+        wc.setObjectName("word-card")
         wc.setAttribute(Qt.WA_StyledBackground, True)
         wc.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
         wcl = QVBoxLayout(wc)
         wcl.setAlignment(Qt.AlignCenter)
         wcl.setContentsMargins(28, 28, 28, 28)
@@ -454,31 +527,48 @@ class RAWindow(QWidget):
         wcl.addWidget(self.target_word_label, stretch=1)
         left.addWidget(wc, stretch=1)
 
-        pr = QHBoxLayout(); pr.setSpacing(14)
-        pl = QLabel("PROGRESS"); pl.setObjectName("trial-stat-key"); pl.setFixedWidth(88)
-        self.progress_bar = QProgressBar(); self.progress_bar.setTextVisible(False)
-        pr.addWidget(pl); pr.addWidget(self.progress_bar, stretch=1)
+        # Progress bar summarizes task completion.
+        pr = QHBoxLayout()
+        pr.setSpacing(14)
+        pl = QLabel("PROGRESS")
+        pl.setObjectName("trial-stat-key")
+        pl.setFixedWidth(88)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setTextVisible(False)
+
+        pr.addWidget(pl)
+        pr.addWidget(self.progress_bar, stretch=1)
         left.addLayout(pr)
 
-        # Right column
-        right = QVBoxLayout(); right.setSpacing(14)
-        rc, rl = self._make_section_card("RESPONSE"); rl.setSpacing(10)
+        # Right column: participant response buttons and session controls.
+        right = QVBoxLayout()
+        right.setSpacing(14)
 
-        self.correct_btn     = QPushButton("✓  Correct")
+        rc, rl = self._make_section_card("RESPONSE")
+        rl.setSpacing(10)
+
+        self.correct_btn = QPushButton("✓  Correct")
         self.correct_btn.setObjectName("resp-correct")
-        self.incorrect_btn   = QPushButton("✗  Incorrect")
+
+        self.incorrect_btn = QPushButton("✗  Incorrect")
         self.incorrect_btn.setObjectName("resp-incorrect")
+
         self.no_response_btn = QPushButton("—  No Response")
         self.no_response_btn.setObjectName("resp-no-response")
-        self.not_sure_btn    = QPushButton("?  Not Sure")
+
+        self.not_sure_btn = QPushButton("?  Not Sure")
         self.not_sure_btn.setObjectName("resp-not-sure")
 
         for btn in [self.correct_btn, self.incorrect_btn, self.no_response_btn, self.not_sure_btn]:
             btn.setCursor(Qt.PointingHandCursor)
             rl.addWidget(btn)
+
         right.addWidget(rc, stretch=1)
 
-        ac, al = self._make_section_card("SESSION ACTIONS"); al.setSpacing(10)
+        ac, al = self._make_section_card("SESSION ACTIONS")
+        al.setSpacing(10)
+
         self.next_list_btn = QPushButton("Next List  →")
         self.next_list_btn.setObjectName("action-primary")
         self.next_list_btn.setCursor(Qt.PointingHandCursor)
@@ -491,32 +581,39 @@ class RAWindow(QWidget):
 
         al.addWidget(self.next_list_btn)
         al.addWidget(self.end_testing_btn)
+
         right.addWidget(ac)
         right.addStretch()
 
         body.addLayout(left, stretch=3)
         body.addLayout(right, stretch=2)
         outer.addLayout(body, stretch=1)
+
         self.trial_widget = page
         self.stacked_layout.addWidget(page)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def show_setup_mode(self):
+        # Switch to the setup screen.
         self.stacked_layout.setCurrentWidget(self.setup_widget)
 
     def show_trial_mode(self):
+        # Switch to the active trial screen.
         self.stacked_layout.setCurrentWidget(self.trial_widget)
 
     def show_action_buttons(self, next_list=True, end_testing=True):
+        # Controls whether end-of-session actions are visible.
         self.next_list_btn.setVisible(next_list)
         self.end_testing_btn.setVisible(end_testing)
 
     def hide_action_buttons(self):
+        # Hide session action buttons when they are not needed.
         self.next_list_btn.setVisible(False)
         self.end_testing_btn.setVisible(False)
 
     def get_setup_data(self):
+        # Validate that a subject ID has been entered before starting the session.
         subject = self.subject_input.text().strip()
         if not subject:
             msg = QMessageBox(self)
@@ -535,27 +632,33 @@ class RAWindow(QWidget):
             """)
             msg.exec()
             return None
+
+        # Package setup fields in a plain dictionary for downstream use.
+        # This is similar to creating a MATLAB struct of session parameters.
         return {
-            "subject_id":  subject,
-            "visit":       self.visit_spin.value(),
-            "run":         self.run_spin.value(),
+            "subject_id": subject,
+            "visit": self.visit_spin.value(),
+            "run": self.run_spin.value(),
             "list_number": self.list_spin.value(),
-            "snr":         self.snr_spin.value(),
-            "target_ear":  self.ear_group.checkedId(),
-            "dist_cond":   self.dist_group.checkedId(),
+            "snr": self.snr_spin.value(),
+            "target_ear": self.ear_group.checkedId(),
+            "dist_cond": self.dist_group.checkedId(),
             "output_mode": "headphones" if self.output_group.checkedId() == 1 else "speakers",
         }
 
     def update_trial_info(self, trial_number, total_trials, snr):
+        # Refresh the trial counter, SNR display, and progress bar position.
         self.trial_label.setText(f"{trial_number}  /  {total_trials}")
         self.snr_label.setText(f"{snr:+.1f} dB")
         self.progress_bar.setMaximum(total_trials)
         self.progress_bar.setValue(trial_number)
 
     def update_target_word(self, word):
+        # Show the current target word in a large, high-visibility format.
         self.target_word_label.setText(word.upper())
 
     def show_session_complete(self):
+        # Update the screen to reflect that the session has ended.
         self.trial_label.setText("DONE")
         self.snr_label.setText("—")
         self.target_word_label.setText("SESSION\nCOMPLETE")
