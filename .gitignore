@@ -1,5 +1,7 @@
 ﻿# Virtual environment
 venv/
+venv_Sanjana/
+.vscode/
 
 # Python cache
 __pycache__/
