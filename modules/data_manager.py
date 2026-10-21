@@ -1,189 +1,190 @@
+"""
+Saves data in EXACTLY the MATLAB DistVRT_v5 format so the scoring system can read
+Python-collected sessions the same way as MATLAB ones:
+
+  <data>\\<ID>\\Visit<N>\\DistVRT_v5_<ID>             log, no extension, ", " separators, LF
+  <data>\\<ID>\\Visit<N>\\<ID>_<SNR>_<Dist>_<Run>_<Trial>.wav   16-bit mono 44.1 kHz
+
+Like MATLAB (ComputeAndReport), the 25 log rows of a list are written together at the
+end of the list with one shared TimeStamp.  While the list is running each trial is also
+appended to  <ID>\\Extras\\  as a crash-recovery copy.
+Overwrite replaces only the matching run (other runs are kept).
+Questionnaires are saved in <data>\\Questionnaires\\.
+"""
 import os
+import re
 import shutil
-import json
-import platform
 from datetime import datetime
+
+import numpy as np
 import soundfile as sf
-import csv
+
+from modules import paths
+
+HEADER = paths.HEADER
+N_TRIALS = 25
+_BAD_ID = re.compile(r'[\\/:*?"<>|\s]')
+
+
+def _fmt_disttime(v):
+    v = float(v)
+    if v == 99999:
+        return "99999"
+    s = ("%.4f" % v).rstrip("0").rstrip(".")
+    return "0" if s in ("-0", "") else s
 
 
 class DataManager:
-
     def __init__(self, subject_id, visit, run, snr, dist_cond,
-                 target_spl_word, target_spl_dist,
-                 list_number, target_ear):
-
+                 target_spl_word, target_spl_dist, list_number, target_ear,
+                 noise_cond=1):
+        subject_id = str(subject_id).strip()
+        if not subject_id or _BAD_ID.search(subject_id):
+            raise ValueError("Subject ID must not be empty or contain spaces or any of "
+                             "\\ / : * ? \" < > |")
         self.subject_id = subject_id
-        self.visit = str(visit)
-        self.run = run
-        self.snr = snr
-        self.dist_cond = dist_cond
+        self.visit = int(visit)
+        self.run = int(run)
+        self.snr = float(snr)
+        self.dist_cond = int(dist_cond)
         self.target_spl_word = target_spl_word
         self.target_spl_dist = target_spl_dist
-        self.list_number = list_number
-        self.target_ear = target_ear
+        self.list_number = int(list_number)
+        self.target_ear = int(target_ear)
+        self.noise_cond = int(noise_cond)
 
-        self.root_path = os.getcwd()
-        self.base_folder = os.path.join(
-            self.root_path,
-            "data",
-            "DistVRT_v5",
-            str(subject_id),
-            f"Visit{self.visit}"
-        )
+        self.visit_folder = paths.visit_dir(subject_id, self.visit)
+        self.log_path = paths.log_file(subject_id, self.visit)
+        self.extras_folder = paths.extras_dir(subject_id)
+        os.makedirs(self.visit_folder, exist_ok=True)
+        os.makedirs(self.extras_folder, exist_ok=True)
 
-        os.makedirs(self.base_folder, exist_ok=True)
+        self._stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._rows = {}                 # trial_number -> row fields (without TimeStamp)
+        self._saved_wavs = []
+        self.recovery_path = os.path.join(
+            self.extras_folder, "in_progress_%s_%s_%s_%s.csv" % (
+                paths.matlab_num2str(self.snr), self.dist_cond, self.run, self._stamp))
 
-        self.behavior_file = os.path.join(
-            self.base_folder,
-            f"DistVRT_v5_{subject_id}.csv"
-        )
+    # ------------------------------------------------------------ naming
+    def wav_path(self, trial):
+        return os.path.join(self.visit_folder, paths.wav_name(
+            self.subject_id, self.snr, self.dist_cond, self.run, trial))
 
-        self.questionnaire_file = os.path.join(
-            self.base_folder,
-            f"DistVRT_v5_{subject_id}_Questionnaire.csv"
-        )
+    def _wav_regex(self):
+        return re.compile(r"^%s_%s_%d_%d_\d+\.wav$" % (
+            re.escape(self.subject_id), re.escape(paths.matlab_num2str(self.snr)),
+            self.dist_cond, self.run), re.IGNORECASE)
 
-        self.metadata_file = os.path.join(
-            self.base_folder,
-            "session_metadata.json"
-        )
+    # --------------------------------------------------------- log parsing
+    def _read_log_lines(self):
+        if not os.path.exists(self.log_path):
+            return []
+        with open(self.log_path, encoding="utf-8", errors="replace", newline="") as f:
+            return f.read().splitlines()
 
-        self._initialize_behavior_file()
-
-    def check_duplicate(self):
-
-        if not os.path.exists(self.behavior_file):
+    def _row_matches(self, line):
+        p = [x.strip() for x in line.split(",")]
+        if len(p) < 13:
+            return False
+        try:
+            return (abs(float(p[5]) - self.snr) < 0.005 and int(float(p[6])) == self.dist_cond
+                    and int(float(p[9])) == self.run and int(float(p[12])) == self.list_number)
+        except ValueError:
             return False
 
-        with open(self.behavior_file, newline="") as f:
-            reader = csv.DictReader(f)
+    def _matching_wavs(self):
+        rx = self._wav_regex()
+        return [f for f in os.listdir(self.visit_folder) if rx.match(f)]
 
-            for row in reader:
-                try:
-                    if (
-                        abs(float(row["SNR"]) - float(self.snr)) < 0.01
-                        and int(row["DistCond"]) == int(self.dist_cond)
-                        and int(row["RunNum"]) == int(self.run)
-                        and int(row["ListNum"]) == int(self.list_number)
-                    ):
-                        return True
-                except Exception:
-                    continue
-
-        return False
+    def check_duplicate(self):
+        """Same test as DistVRT_Integration.m (SNR, DistCond, Run, List), plus a check
+        for recordings that would be overwritten."""
+        for line in self._read_log_lines()[1:]:
+            if self._row_matches(line):
+                return True
+        return bool(self._matching_wavs())
 
     def delete_existing(self):
-        """Delete existing session data and reinitialise — called by main.py on overwrite."""
-        if os.path.exists(self.base_folder):
-            shutil.rmtree(self.base_folder)
-        os.makedirs(self.base_folder, exist_ok=True)
-        self._initialize_behavior_file()
+        """Overwrite: replace ONLY this condition (same SNR / DistCond / Run / List).
+        Its recordings and its log rows are removed; other runs are left untouched."""
+        for f in self._matching_wavs():
+            os.remove(os.path.join(self.visit_folder, f))
+        lines = self._read_log_lines()
+        if lines:
+            kept = [lines[0]] + [l for l in lines[1:] if l.strip() and not self._row_matches(l)]
+            with open(self.log_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(kept) + "\n")
 
     def overwrite_session(self):
-        """Alias kept for compatibility."""
+        """Called by main.py on overwrite."""
         self.delete_existing()
 
     def save_metadata(self):
+        """MATLAB writes no metadata file, so nothing is written."""
+        return
 
-        metadata = {
-            "subject_id": self.subject_id,
-            "visit": self.visit,
-            "run": self.run,
-            "snr": self.snr,
-            "dist_cond": self.dist_cond,
-            "target_spl_word": self.target_spl_word,
-            "target_spl_dist": self.target_spl_dist,
-            "list_number": self.list_number,
-            "target_ear": self.target_ear,
-            "timestamp": datetime.now().isoformat(),
-            "python_version": platform.python_version(),
-            "os": platform.system()
-        }
-
-        with open(self.metadata_file, "w") as f:
-            json.dump(metadata, f, indent=4)
-
-    def _initialize_behavior_file(self):
-
-        if not os.path.exists(self.behavior_file):
-            with open(self.behavior_file, "w") as f:
-                header = (
-                    "ObsName,TimeStamp,VisitNum,WordLevel,NoiseCond,SNR,"
-                    "DistCond,DistLevel,DistTime,RunNum,TrialNum,"
-                    "StimTalker,ListNum,StimWord,DistPresent,"
-                    "DistItem,TargetSide,Response\n"
-                )
-                f.write(header)
+    def _row_fields(self, trial_number, info, response):
+        n2s = paths.matlab_num2str
+        return [
+            self.subject_id, None, str(self.visit), n2s(self.target_spl_word),
+            str(self.noise_cond), n2s(self.snr), str(self.dist_cond),
+            n2s(self.target_spl_dist), _fmt_disttime(info["dist_time"]), str(self.run),
+            str(int(trial_number)), paths.TALKER, str(self.list_number), info["word"],
+            str(int(info["dist_present"])), info["dist_name"], str(self.target_ear),
+            str(response),
+        ]
 
     def save_trial(self, trial_number, trial_info, response, recording, fs):
+        """Write the recording (atomically) and remember the row."""
+        rec = np.clip(np.asarray(recording, dtype=np.float32), -1.0, 1.0)
+        final = self.wav_path(trial_number)
+        tmp = final + ".tmp"
+        sf.write(tmp, rec, int(fs), format="WAV", subtype="PCM_16")
+        os.replace(tmp, final)
+        self._saved_wavs.append(final)
 
-        timestamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
+        fields = self._row_fields(trial_number, trial_info, response)
+        self._rows[int(trial_number)] = fields
+        stamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
+        new = not os.path.exists(self.recovery_path)
+        with open(self.recovery_path, "a", encoding="utf-8", newline="\n") as f:
+            if new:
+                f.write(HEADER + "\n")
+            f.write(", ".join(stamp if x is None else x for x in fields) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
-        row = (
-            f"{self.subject_id},"
-            f"{timestamp},"
-            f"{self.visit},"
-            f"{self.target_spl_word},"
-            f"1,"
-            f"{self.snr},"
-            f"{self.dist_cond},"
-            f"{self.target_spl_dist},"
-            f"{trial_info['dist_time']},"
-            f"{self.run},"
-            f"{trial_number},"
-            f"Female_2,"
-            f"{self.list_number},"
-            f"{trial_info['word']},"
-            f"{trial_info['dist_present']},"
-            f"{trial_info['dist_name']},"
-            f"{self.target_ear},"
-            f"{response}\n"
-        )
-
-        with open(self.behavior_file, "a") as f:
-            f.write(row)
-
-        wav_name = (
-            f"{self.subject_id}_"
-            f"{self.snr}_"
-            f"{self.dist_cond}_"
-            f"{self.run}_"
-            f"{trial_number}.wav"
-        )
-
-        wav_path = os.path.join(self.base_folder, wav_name)
-        sf.write(wav_path, recording, fs)
+    def finalize_list(self):
+        """Append the list's rows to DistVRT_v5_<ID> (called after trial 25)."""
+        stamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
+        rows = [self._rows[k] for k in sorted(self._rows)]
+        new = not os.path.exists(self.log_path)
+        with open(self.log_path, "a", encoding="utf-8", newline="\n") as f:
+            if new:
+                f.write(HEADER + "\n")
+            for r in rows:
+                f.write(", ".join(stamp if x is None else x for x in r) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        if len(rows) == N_TRIALS and os.path.exists(self.recovery_path):
+            os.remove(self.recovery_path)
+        return self.log_path
 
     def save_questionnaire(self, answers, question_texts):
-
-        timestamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
-
-        file_exists = os.path.exists(self.questionnaire_file)
-
-        with open(self.questionnaire_file, "a", newline="") as f:
-            writer = csv.writer(f)
-
-            if not file_exists:
-                header = [
-                    "ObsName",
-                    "TimeStamp",
-                    "VisitNum",
-                    "RunNum",
-                    "ListNum",
-                    "SNR",
-                    "DistCond"
-                ] + question_texts
-
-                writer.writerow(header)
-
-            writer.writerow([
-                self.subject_id,
-                timestamp,
-                self.visit,
-                self.run,
-                self.list_number,
-                self.snr,
-                self.dist_cond,
-                *answers
-            ])
+        """Same style as the MATLAB log: no extension, ', ' separators, LF, header ending
+        in ', ', num2str numbers.  Saved in <data>\\Questionnaires\\."""
+        qdir = paths.questionnaire_dir()
+        os.makedirs(qdir, exist_ok=True)
+        path = os.path.join(qdir, "%s_%s_Questionnaire" % (
+            paths.LOG_PREFIX, self.subject_id))
+        clean = lambda x: str(x).replace(",", ";").replace("\n", " ")        # noqa: E731
+        new = not os.path.exists(path)
+        stamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
+        with open(path, "a", encoding="utf-8", newline="\n") as f:
+            if new:
+                f.write("".join(clean(x) + ", " for x in ["ObsName", "TimeStamp", "VisitNum",
+                        "RunNum", "ListNum", "SNR", "DistCond"] + list(question_texts)) + "\n")
+            f.write("".join(clean(x) + ", " for x in [
+                self.subject_id, stamp, self.visit, self.run, self.list_number,
+                paths.matlab_num2str(self.snr), self.dist_cond] + list(answers)) + "\n")

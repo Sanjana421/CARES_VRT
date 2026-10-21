@@ -369,7 +369,7 @@ class RAWindow(QWidget):
         dl.addLayout(self._field_row("List Number", self.list_spin))
 
         self.snr_spin = QDoubleSpinBox()
-        self.snr_spin.setRange(-30.0, 30.0); self.snr_spin.setDecimals(1)
+        self.snr_spin.setRange(-30.0, 30.0); self.snr_spin.setDecimals(2)
         self.snr_spin.setSingleStep(0.5); self.snr_spin.setSuffix("  dB")
         dl.addLayout(self._field_row("SNR", self.snr_spin))
 

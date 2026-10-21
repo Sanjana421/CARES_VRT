@@ -1,138 +1,113 @@
+"""
+Builds the 25 stereo trials for one list.  Port of MakeStim in DistVRT_v5.m.
+All files are read from the MATLAB experiment folder (see modules/paths.py).
+"""
 import os
+from math import gcd
 
 import numpy as np
 import soundfile as sf
 from scipy.io import loadmat
-from scipy.signal import resample as scipy_resample
+from scipy.signal import resample_poly
 
+from modules import paths
 from modules.calibration import scale_to_system_calibration
 
-TARGET_FS = 44100
+TARGET_FS = 44100          # MOTU rate used by MATLAB (FS_MOTU)
+N_TRIALS = 25
+
+
+def _cell_str(entry):
+    while isinstance(entry, np.ndarray):
+        entry = entry[0]
+    return str(entry)
+
+
+def _read_mono(path):
+    audio, fs = sf.read(path)
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    return audio.astype(np.float64), fs
+
+
+def _resample(audio, fs_in, fs_out=TARGET_FS):
+    """Polyphase resampling, the same family of filter as MATLAB resample()."""
+    if fs_in == fs_out:
+        return audio
+    g = gcd(int(fs_out), int(fs_in))
+    return resample_poly(audio, int(fs_out) // g, int(fs_in) // g)
 
 
 class StimulusBuilder:
-    def __init__(self, base_path):
-        self.base_path = base_path
-        self.word_lists = self._load_word_lists()
-        self.distractor_list = self._load_distractor_list()
+    def __init__(self):
+        self.word_lists = loadmat(paths.WORD_LIST_MAT)["BalancedWordLists_cell"]
+        self.distractors = loadmat(paths.DIST_LIST_MAT)["NarrowDistractList_cell"]
+        self.n_lists = self.word_lists.shape[1]
 
-    def _load_word_lists(self):
-        mat = loadmat(os.path.join(self.base_path, "BalancedWordLists_cell.mat"))
-        return mat["BalancedWordLists_cell"]
+    def build_list(self, list_number, target_ear, dist_cond,
+                   target_spl_word, target_spl_dist):
+        if not 1 <= int(list_number) <= self.n_lists:
+            raise ValueError("List number must be between 1 and %d" % self.n_lists)
 
-    def _load_distractor_list(self):
-        mat = loadmat(os.path.join(self.base_path, "NarrowDistractList_cell.mat"))
-        return mat["NarrowDistractList_cell"]
+        # --- choose 6 distractors: 2 unpleasant, 2 neutral, 2 pleasant (MATLAB randperm) ---
+        picks = np.concatenate([
+            np.random.choice(np.arange(0, 15), 2, replace=False),    # unpleasant 1-15
+            np.random.choice(np.arange(15, 24), 2, replace=False),   # neutral   16-24
+            np.random.choice(np.arange(24, 39), 2, replace=False),   # pleasant  25-39
+        ])
+        np.random.shuffle(picks)
+        dist_names = [_cell_str(self.distractors[i]) for i in picks]
 
-    def _extract_string(self, cell_entry):
-        while isinstance(cell_entry, np.ndarray):
-            cell_entry = cell_entry[0]
-        return str(cell_entry)
+        # --- 6 trials out of 3..25, never back to back (randsample(3:25,6)) ---
+        while True:
+            dist_trials = np.sort(np.random.choice(np.arange(2, 25), 6, replace=False))
+            if np.all(np.diff(dist_trials) > 1):
+                break
+        dist_map = {int(t): n for t, n in zip(dist_trials, dist_names)}
 
-    def _read_mono(self, path):
-        audio, fs = sf.read(path)
-        if audio.ndim > 1:
-            audio = np.mean(audio, axis=1)
-        return audio.astype(np.float32), fs
-
-    def _resample_to_target(self, audio, fs):
-        if fs == TARGET_FS:
-            return audio.astype(np.float32)
-        new_len = int(round(len(audio) * TARGET_FS / fs))
-        return scipy_resample(audio, new_len).astype(np.float32)
-
-    def build_list(self, list_number, target_ear, target_spl_word, target_spl_dist, target_spl_noise=None):
-        """
-        Build 25 trials for one list.
-
-        Word and distractor audio are calibrated here.
-        target_spl_noise is accepted for API compatibility with main.py,
-        but the continuous noise is handled separately by AudioEngine.
-        """
+        word_order = np.random.permutation(N_TRIALS)
+        delay = int(round(0.5 * TARGET_FS))            # word always starts 500 ms in
         trials = []
 
-        unpleasant = np.random.choice(np.arange(0, 15), 2, replace=False)
-        neutral = np.random.choice(np.arange(15, 24), 2, replace=False)
-        pleasant = np.random.choice(np.arange(24, 39), 2, replace=False)
+        for t in range(N_TRIALS):
+            word = _cell_str(self.word_lists[word_order[t], int(list_number) - 1])
+            audio, fs = _read_mono(os.path.join(paths.WORD_DIR, word + ".wav"))
+            audio = scale_to_system_calibration(_resample(audio, fs), target_spl_word)
+            word_audio = np.concatenate([np.zeros(delay, np.float32), audio])
 
-        selected_indices = np.concatenate([unpleasant, neutral, pleasant])
-        np.random.shuffle(selected_indices)
-
-        selected_distractors = [
-            self._extract_string(self.distractor_list[i])
-            for i in selected_indices
-        ]
-
-        valid = False
-        while not valid:
-            rand_trials = np.sort(np.random.choice(np.arange(2, 25), 6, replace=False))
-            if np.all(np.diff(rand_trials) > 1):
-                valid = True
-
-        distractor_map = dict(zip(rand_trials, selected_distractors))
-        word_indices = np.random.permutation(25)
-
-        for trial in range(25):
-            word_idx = word_indices[trial]
-            word = self._extract_string(self.word_lists[word_idx, list_number - 1])
-
-            word_audio, word_fs = self._read_mono(
-                os.path.join(self.base_path, "stim", "Female_2", f"{word}.wav")
-            )
-            word_audio = self._resample_to_target(word_audio, word_fs)
-            word_audio = scale_to_system_calibration(word_audio, target_spl_word)
-
-            delay_samples = int(0.5 * TARGET_FS)
-            word_audio = np.concatenate((np.zeros(delay_samples, dtype=np.float32), word_audio))
-
-            dist_present = 0
-            dist_name = "none"
+            has_item = t in dist_map
+            # MATLAB logs the distractor name on these 6 trials even when DistCond = 0
+            # (DistPresent stays 0 and nothing is played) - kept so logs stay identical.
+            dist_name = dist_map[t] if has_item else "none"
+            dist_present = 1 if (has_item and int(dist_cond) == 1) else 0
             dist_time = 99999
 
-            if trial in distractor_map:
-                dist_present = 1
-                dist_name = distractor_map[trial]
-                dist_filename = f"{dist_name}-peak_RMS.wav"
-
-                dist_audio, dist_fs = self._read_mono(
-                    os.path.join(self.base_path, "stim", "Distractors_RMSscaled", dist_filename)
-                )
-                dist_audio = self._resample_to_target(dist_audio, dist_fs)
-                dist_audio = scale_to_system_calibration(dist_audio, target_spl_dist)
-
-                max_jitter = int(0.75 * TARGET_FS)
-                jitter = np.random.randint(1, max_jitter + 1)
-
-                if jitter >= delay_samples:
-                    dist_time = ((jitter / TARGET_FS) * 1000) - 500
+            if dist_present:
+                d, dfs = _read_mono(os.path.join(paths.DIST_DIR, dist_name + "-peak_RMS.wav"))
+                d = scale_to_system_calibration(_resample(d, dfs), target_spl_dist)
+                jit = int(np.random.randint(1, int(round(0.75 * TARGET_FS)) + 1))
+                if jit >= delay:
+                    dist_time = (jit / TARGET_FS) * 1000 - 500    # after word onset
                 else:
-                    dist_time = -((jitter / TARGET_FS) * 1000)
-
-                dist_audio = np.concatenate((np.zeros(jitter, dtype=np.float32), dist_audio))
-
-                if len(dist_audio) > len(word_audio):
-                    word_audio = np.concatenate(
-                        (word_audio, np.zeros(len(dist_audio) - len(word_audio), dtype=np.float32))
-                    )
-                else:
-                    dist_audio = np.concatenate(
-                        (dist_audio, np.zeros(len(word_audio) - len(dist_audio), dtype=np.float32))
-                    )
+                    dist_time = -((jit / TARGET_FS) * 1000)       # before word onset
+                d = np.concatenate([np.zeros(jit, np.float32), d])
+                n = max(len(d), len(word_audio))
+                d = np.pad(d, (0, n - len(d)))
+                word_audio = np.pad(word_audio, (0, n - len(word_audio)))
             else:
-                dist_audio = np.zeros_like(word_audio, dtype=np.float32)
+                d = np.zeros(len(word_audio), np.float32)
 
-            if target_ear == 2:
-                stimulus = np.column_stack((dist_audio, word_audio))
+            if int(target_ear) == 2:
+                stim = np.column_stack((d, word_audio))      # word right, distractor left
             else:
-                stimulus = np.column_stack((word_audio, dist_audio))
+                stim = np.column_stack((word_audio, d))      # word left, distractor right
 
             trials.append({
-                "stimulus": stimulus.astype(np.float32),
+                "stimulus": stim.astype(np.float32),
                 "word": word,
                 "dist_present": dist_present,
                 "dist_name": dist_name,
                 "dist_time": dist_time,
-                "target_ear": target_ear,
+                "target_ear": int(target_ear),
             })
-
         return trials

@@ -23,3 +23,12 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+
+_upd*/
+_pack/
+*.bak
+venv/
+data/
+Data/
+logs/
+__pycache__/
