@@ -75,6 +75,9 @@ def _resolve_data_dir():
                                          in it                  (layout of the lab's Data folder)
          3. otherwise                    <root>\\data\\DistVRT_v5  (MATLAB path, created on use)
        Anything else in config.ini is taken as a path relative to root."""
+    full = cfg("paths", "data_dir", "")
+    if full:                                   # full path, e.g. the server data folder
+        return os.path.normpath(full)
     setting = cfg("paths", "data_subdir", "auto")
     if setting.lower() != "auto":
         return os.path.join(ROOT, *_split(setting))

@@ -61,7 +61,7 @@ def run_checks(check_audio=True):
             f.write("ok")
         os.remove(probe)
         ok("Data folder is writable: %s" % paths.DATA_DIR)
-        ok("Layout: %s" % ("participants directly under Data\\" if os.path.basename(paths.DATA_DIR).lower() == "data" else "data\\DistVRT_v5\\<ID>\\Visit<N> (as in DistVRT_v5.m)"))
+        ok("Participants are saved as <data folder>\\<ID>\\Visit<N>\\ ")
         free = shutil.disk_usage(paths.DATA_DIR).free / 1e9
         (ok if free > 2 else warn)("%.1f GB free on the data drive" % free)
     except OSError as exc:

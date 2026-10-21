@@ -158,8 +158,8 @@ def main():
                     "<b>Data for these exact conditions already exists.</b><br><br>"
                     "Subject: %s &nbsp;|&nbsp; Visit: %s &nbsp;|&nbsp; Run: %s &nbsp;|&nbsp; "
                     "List: %s &nbsp;|&nbsp; SNR: %s &nbsp;|&nbsp; Distractor: %s<br><br>"
-                    "Replace it? The old files are moved to the <i>_replaced</i> folder "
-                    "inside this visit - nothing is deleted."
+                    "Replace it? This deletes the old recordings and log rows for these exact "
+                    "conditions only. Other runs are not touched."
                     % (setup["subject_id"], setup["visit"], setup["run"], setup["list_number"],
                        paths.matlab_num2str(setup["snr"]), "Yes" if setup["dist_cond"] else "No"))
                 msg.setIcon(QMessageBox.Warning)
