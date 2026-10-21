@@ -12,8 +12,10 @@ Overwrite replaces only the matching run (other runs are kept).
 Questionnaires are saved in <data>\\Questionnaires\\.
 """
 import os
+import queue
 import re
 import shutil
+import threading
 from datetime import datetime
 
 import numpy as np
@@ -62,6 +64,9 @@ class DataManager:
         self._stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self._rows = {}                 # trial_number -> row fields (without TimeStamp)
         self._saved_wavs = []
+        self._queue = queue.Queue()
+        self._writer = None
+        self._write_error = None
         self.recovery_path = os.path.join(
             self.extras_folder, "in_progress_%s_%s_%s_%s.csv" % (
                 paths.matlab_num2str(self.snr), self.dist_cond, self.run, self._stamp))
@@ -136,27 +141,56 @@ class DataManager:
         ]
 
     def save_trial(self, trial_number, trial_info, response, recording, fs):
-        """Write the recording (atomically) and remember the row."""
-        rec = np.clip(np.asarray(recording, dtype=np.float32), -1.0, 1.0)
-        final = self.wav_path(trial_number)
-        tmp = final + ".tmp"
-        sf.write(tmp, rec, int(fs), format="WAV", subtype="PCM_16")
-        os.replace(tmp, final)
-        self._saved_wavs.append(final)
-
+        """Queue the recording + row for writing and return IMMEDIATELY, so the next
+        word starts with no pause even when the data folder is on the server.
+        A background thread does the file writing; finalize_list() waits for it."""
+        if self._write_error:
+            raise OSError(self._write_error)
+        rec = np.clip(np.asarray(recording, dtype=np.float32), -1.0, 1.0).copy()
         fields = self._row_fields(trial_number, trial_info, response)
         self._rows[int(trial_number)] = fields
-        stamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
-        new = not os.path.exists(self.recovery_path)
-        with open(self.recovery_path, "a", encoding="utf-8", newline="\n") as f:
-            if new:
-                f.write(HEADER + "\n")
-            f.write(", ".join(stamp if x is None else x for x in fields) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        self._ensure_writer()
+        self._queue.put((int(trial_number), rec, int(fs), fields))
+
+    def _ensure_writer(self):
+        if self._writer is None or not self._writer.is_alive():
+            self._writer = threading.Thread(target=self._write_loop, daemon=True)
+            self._writer.start()
+
+    def _write_loop(self):
+        while True:
+            job = self._queue.get()
+            try:
+                if job is None:
+                    return
+                trial_number, rec, fs, fields = job
+                if self._write_error:
+                    continue
+                final = self.wav_path(trial_number)
+                tmp = final + ".tmp"
+                sf.write(tmp, rec, fs, format="WAV", subtype="PCM_16")
+                os.replace(tmp, final)
+                self._saved_wavs.append(final)
+                stamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
+                new = not os.path.exists(self.recovery_path)
+                with open(self.recovery_path, "a", encoding="utf-8", newline="\n") as f:
+                    if new:
+                        f.write(HEADER + "\n")
+                    f.write(", ".join(stamp if x is None else x for x in fields) + "\n")
+            except Exception as exc:                                  # noqa: BLE001
+                self._write_error = str(exc)
+            finally:
+                self._queue.task_done()
+
+    def wait_for_writes(self):
+        """Block until every queued recording has been written."""
+        self._queue.join()
+        if self._write_error:
+            raise OSError(self._write_error)
 
     def finalize_list(self):
         """Append the list's rows to DistVRT_v5_<ID> (called after trial 25)."""
+        self.wait_for_writes()
         stamp = datetime.now().strftime("DAT_%y_%m_%d_%H_%M_%S")
         rows = [self._rows[k] for k in sorted(self._rows)]
         new = not os.path.exists(self.log_path)

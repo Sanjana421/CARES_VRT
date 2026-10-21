@@ -87,8 +87,12 @@ def main():
         def build_and_start_list():
             setup, engine, dm = state["setup"], state["engine"], state["dm"]
 
-            engine.set_continuous_noise(noise_cache["noise"],
-                                        TARGET_SPL_NOISE_BASE - setup["snr"])
+            try:
+                engine.set_continuous_noise(noise_cache["noise"],
+                                            TARGET_SPL_NOISE_BASE - setup["snr"])
+            except AudioSetupError as exc:
+                to_setup(str(exc))
+                return
             stimuli = builder.build_list(
                 list_number=setup["list_number"], target_ear=setup["target_ear"],
                 dist_cond=setup["dist_cond"],

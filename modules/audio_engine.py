@@ -68,11 +68,12 @@ class AudioEngine:
         self.noise_buffer = None
         self.noise_idx = 0
 
-        self._trial_thread = None
-        self._trial_stop = threading.Event()
+        self._stream = None
+        self._stim = None
+        self._pos = 0
         self._trial_playback_done = threading.Event()
         self._recording_chunks = []
-        self._trial_lock = threading.Lock()
+        self._cb_lock = threading.Lock()
 
     # ------------------------------------------------------------------ tone
     def play_test_tone(self, duration=0.7, freq=440, level=0.05):
@@ -87,8 +88,9 @@ class AudioEngine:
 
     # ----------------------------------------------------------------- noise
     def set_continuous_noise(self, noise, target_spl_noise):
-        """Scale noise like scale2SysCalSF (per channel) and start it at a random
-        point of the file, as MakeStim does."""
+        """Scale noise like scale2SysCalSF (per channel), start it at a random point of
+        the file (MakeStim) and START PLAYING IT NOW, continuously, until stop_noise().
+        MATLAB: play(noisePlayer) before the first trial; it never pauses between trials."""
         noise = np.asarray(noise, dtype=np.float32)
         if noise.ndim == 1:
             noise = np.column_stack((noise, noise))
@@ -96,8 +98,10 @@ class AudioEngine:
         start = int(np.random.randint(1, len(noise) + 1))
         self.noise_buffer = np.roll(noise, -start, axis=0)
         self.noise_idx = 0
+        self._open_stream()
 
     def stop_noise(self):
+        self._close_stream()
         self.noise_buffer = None
         self.noise_idx = 0
 
@@ -107,61 +111,73 @@ class AudioEngine:
         self.noise_idx = int((self.noise_idx + frames) % n)
         return self.noise_buffer[idx]
 
+    # ---------------------------------------------------------------- stream
+    # One duplex stream stays open for the whole list.  The noise is mixed into it
+    # all the time (so it is continuous, with no gap between trials); the trial
+    # stimulus and the microphone recording are switched on and off inside it.
+    def _callback(self, indata, outdata, frames, time_info, status):
+        outdata.fill(0)
+        with self._cb_lock:
+            stim, pos = self._stim, self._pos
+            if stim is not None:
+                end = min(pos + frames, len(stim))
+                if end > pos:
+                    outdata[:end - pos, :] = stim[pos:end, :]
+                self._pos = end
+                self._recording_chunks.append(indata[:, 0].copy())
+                if end >= len(stim) and not self._trial_playback_done.is_set():
+                    self._trial_playback_done.set()
+        if self.noise_buffer is not None:
+            outdata[:] = np.clip(outdata + self._noise_chunk(frames), -1.0, 1.0)
+
+    def _open_stream(self):
+        self._close_stream()
+        try:
+            self._stream = sd.Stream(samplerate=self.samplerate, blocksize=self.blocksize,
+                                     device=(self.input_device, self.output_device),
+                                     channels=(1, 2), dtype="float32", latency="low",
+                                     callback=self._callback)
+            self._stream.start()
+        except Exception as exc:                                    # noqa: BLE001
+            self._stream = None
+            raise AudioSetupError("Could not open the audio stream: %s" % exc)
+
+    def _close_stream(self):
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:                                       # noqa: BLE001
+                pass
+
     # ----------------------------------------------------------------- trial
     def start_trial_capture(self, stimulus):
-        """Play `stimulus` (+ noise) and record the mic until stop_trial_capture().
-        Returns an Event that is set when the stimulus has finished playing."""
+        """Play `stimulus` on top of the running noise and record the mic until
+        stop_trial_capture().  Returns an Event set when the stimulus has finished."""
         stimulus = np.asarray(stimulus, dtype=np.float32)
         if stimulus.ndim == 1:
             stimulus = np.column_stack((stimulus, stimulus))
-
-        with self._trial_lock:
-            self.error = None
-            self._trial_stop.clear()
+        self.error = None
+        try:
+            if self._stream is None or not self._stream.active:
+                self._open_stream()
+        except AudioSetupError as exc:
+            self.error = str(exc)
+            self._trial_playback_done.set()
+            return self._trial_playback_done
+        with self._cb_lock:
             self._trial_playback_done.clear()
             self._recording_chunks = []
-            total = stimulus.shape[0]
-            pos = [0]
-
-            def callback(indata, outdata, frames, time_info, status):
-                i = pos[0]
-                end = min(i + frames, total)
-                outdata.fill(0)
-                if end > i:
-                    outdata[:end - i, :] = stimulus[i:end, :]
-                if self.noise_buffer is not None:
-                    outdata[:] = np.clip(outdata + self._noise_chunk(frames), -1.0, 1.0)
-                self._recording_chunks.append(indata[:, 0].copy())
-                pos[0] = end
-                if end >= total and not self._trial_playback_done.is_set():
-                    self._trial_playback_done.set()
-                if self._trial_stop.is_set():
-                    raise sd.CallbackStop()
-
-            def runner():
-                try:
-                    with sd.Stream(samplerate=self.samplerate,
-                                   blocksize=self.blocksize,
-                                   device=(self.input_device, self.output_device),
-                                   channels=(1, 2), dtype="float32",
-                                   latency="low", callback=callback):
-                        while not self._trial_stop.is_set():
-                            self._trial_stop.wait(0.05)
-                except Exception as exc:                      # noqa: BLE001
-                    self.error = "Audio stream failed: %s" % exc
-                    self._trial_playback_done.set()
-
-            self._trial_thread = threading.Thread(target=runner, daemon=True)
-            self._trial_thread.start()
-            return self._trial_playback_done
+            self._pos = 0
+            self._stim = stimulus
+        return self._trial_playback_done
 
     def stop_trial_capture(self):
-        """Stop and return the mono recording (float32)."""
-        with self._trial_lock:
-            self._trial_stop.set()
-            if self._trial_thread is not None:
-                self._trial_thread.join(timeout=2.0)
-                self._trial_thread = None
-            if not self._recording_chunks:
-                return np.empty(0, dtype=np.float32)
-            return np.concatenate(self._recording_chunks).astype(np.float32)
+        """Stop the trial (noise keeps playing) and return the mono recording."""
+        with self._cb_lock:
+            self._stim = None
+            chunks, self._recording_chunks = self._recording_chunks, []
+        if not chunks:
+            return np.empty(0, dtype=np.float32)
+        return np.concatenate(chunks).astype(np.float32)
