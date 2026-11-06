@@ -1,16 +1,3 @@
-"""
-Saves data in EXACTLY the MATLAB DistVRT_v5 format so the scoring system can read
-Python-collected sessions the same way as MATLAB ones:
-
-  <data>\\<ID>\\Visit<N>\\DistVRT_v5_<ID>             log, no extension, ", " separators, LF
-  <data>\\<ID>\\Visit<N>\\<ID>_<SNR>_<Dist>_<Run>_<Trial>.wav   16-bit mono 44.1 kHz
-
-Like MATLAB (ComputeAndReport), the 25 log rows of a list are written together at the
-end of the list with one shared TimeStamp.  While the list is running each trial is also
-appended to  <ID>\\Extras\\  as a crash-recovery copy.
-Overwrite replaces only the matching run (other runs are kept).
-Questionnaires are saved in <data>\\Questionnaires\\.
-"""
 import os
 import queue
 import re
@@ -101,6 +88,61 @@ class DataManager:
     def _matching_wavs(self):
         rx = self._wav_regex()
         return [f for f in os.listdir(self.visit_folder) if rx.match(f)]
+
+    def _list_for_matching_run_row(self, line):
+        """Return ListNum when a log row belongs to this run's key conditions."""
+        p = [x.strip() for x in line.split(",")]
+        if len(p) < 13:
+            return None
+        try:
+            if (int(float(p[2])) != self.visit
+                    or abs(float(p[5]) - self.snr) >= 0.005
+                    or int(float(p[6])) != self.dist_cond
+                    or int(float(p[9])) != self.run):
+                return None
+            return int(float(p[12]))
+        except ValueError:
+            return None
+
+    def run_list_conflict(self):
+        """Detect a run already tied to another list before overwrite can delete WAVs.
+
+        Also fail closed when matching WAVs exist but no log/recovery row identifies
+        their list. Their ownership cannot be inferred from the legacy WAV filename.
+        """
+        lists = set()
+        for line in self._read_log_lines()[1:]:
+            list_number = self._list_for_matching_run_row(line)
+            if list_number is not None:
+                lists.add(list_number)
+
+        # In-progress rows are written to the subject's Extras folder before the
+        # completed list is appended to the visit log.
+        try:
+            recovery_files = [
+                name for name in os.listdir(self.extras_folder)
+                if name.startswith("in_progress_") and name.endswith(".csv")
+            ]
+        except OSError:
+            recovery_files = []
+        for name in recovery_files:
+            path = os.path.join(self.extras_folder, name)
+            try:
+                with open(path, encoding="utf-8", errors="replace", newline="") as f:
+                    lines = f.read().splitlines()
+            except OSError:
+                continue
+            for line in lines[1:]:
+                list_number = self._list_for_matching_run_row(line)
+                if list_number is not None:
+                    lists.add(list_number)
+
+        other_lists = sorted(n for n in lists if n != self.list_number)
+        if other_lists:
+            return {"kind": "other_list", "list_number": other_lists[0]}
+        if self._matching_wavs() and self.list_number not in lists:
+            return {"kind": "unknown", "list_number": None}
+        return None
 
     def check_duplicate(self):
         """Same test as DistVRT_Integration.m (SNR, DistCond, Run, List), plus a check
