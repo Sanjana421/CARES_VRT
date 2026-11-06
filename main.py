@@ -155,6 +155,22 @@ def main():
                 _error_box(window, "Cannot start", str(exc))
                 return
 
+            conflict = dm.run_list_conflict()
+            if conflict:
+                state["engine"] = None
+                if conflict["kind"] == "other_list":
+                    reason = ("This Run Number is already used by List %s for this subject, "
+                              "visit, SNR, and distractor condition. Choose a different Run "
+                              "Number. Existing files were not changed."
+                              % conflict["list_number"])
+                else:
+                    reason = ("Recordings for this Run Number already exist, but their list "
+                              "cannot be identified from the saved log. Choose a different "
+                              "Run Number. Existing files were not changed.")
+                _error_box(window, "Run Number Cannot Be Reused", reason,
+                           icon=QMessageBox.Warning)
+                return
+
             if dm.check_duplicate():
                 msg = QMessageBox(window)
                 msg.setWindowTitle("Condition Already Exists")
