@@ -3,3 +3,4 @@ scipy==1.11.4
 sounddevice==0.4.6
 soundfile==0.12.1
 PySide6==6.7.2
+openpyxl==3.1.5
