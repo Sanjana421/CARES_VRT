@@ -1,19 +1,21 @@
 """
 Single source of truth for every file path and number format used by the
-collection app.  Mirrors DistVRT_v5.m / DistVRT_Integration.m exactly:
+collection app. Mirrors DistVRT_v5.m / DistVRT_Integration.m:
 
     <root>\\stim\\MTB_child.wav
     <root>\\stim\\Female_2\\<word>.wav
     <root>\\stim\\Distractors_RMSscaled\\<name>-peak_RMS.wav
     <data>\\<ID>\\Visit<N>\\DistVRT_v5_<ID>          (log, no extension)
     <data>\\<ID>\\Visit<N>\\<ID>_<SNR>_<DistCond>_<Run>_<Trial>.wav
-where <data> is  <root>\\data\\DistVRT_v5  (MATLAB script) or  <root>\\Data  (the lab's
-Data folder, where participants sit directly under Data) - see _resolve_data_dir().
+
+The data directory is resolved by _resolve_data_dir().
 """
+
 import configparser
 import math
 import os
 import re
+
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE = os.path.join(APP_DIR, "config.ini")
@@ -38,14 +40,14 @@ def cfg_int(section, key, default):
 
 
 def _split(rel):
-    return [p for p in re.split(r"[\\/]+", rel) if p]
+    return [part for part in re.split(r"[\\/]+", rel) if part]
 
 
 _root = cfg("paths", "root", "")
 if _root:
     ROOT = os.path.normpath(_root)
 elif os.path.isdir(os.path.join(APP_DIR, "stim")):
-    ROOT = APP_DIR                      # stim folder sits next to main.py (GitHub layout)
+    ROOT = APP_DIR
 else:
     ROOT = os.path.dirname(APP_DIR)
 
@@ -56,51 +58,70 @@ WORD_DIR = os.path.join(STIM_DIR, TALKER)
 DIST_DIR = os.path.join(STIM_DIR, "Distractors_RMSscaled")
 
 
-
 def _child(parent, name):
-    """Case-insensitive child lookup (Windows ignores case; keeps Linux tests honest)."""
+    """Case-insensitive child lookup (Windows ignores case)."""
     try:
-        for d in os.listdir(parent):
-            if d.lower() == name.lower() and os.path.isdir(os.path.join(parent, d)):
-                return os.path.join(parent, d)
+        for entry in os.listdir(parent):
+            if (
+                entry.lower() == name.lower()
+                and os.path.isdir(os.path.join(parent, entry))
+            ):
+                return os.path.join(parent, entry)
     except OSError:
         pass
+
     return None
 
 
 def _resolve_data_dir():
-    """data_subdir = auto (default):
-         1. <root>\\data\\DistVRT_v5   if it exists          (literal MATLAB path)
-         2. <root>\\Data                if participant folders (<ID>\\Visit<N>) sit directly
-                                         in it                  (layout of the lab's Data folder)
-         3. otherwise                    <root>\\data\\DistVRT_v5  (MATLAB path, created on use)
-       Anything else in config.ini is taken as a path relative to root."""
-    full = cfg("paths", "data_dir", "")
-    if full:                                   # full path, e.g. the server data folder
-        return os.path.normpath(full)
+    """Resolve the collection data folder using config.ini."""
+    full_path = cfg("paths", "data_dir", "")
+    if full_path:
+        return os.path.normpath(full_path)
+
     setting = cfg("paths", "data_subdir", "auto")
     if setting.lower() != "auto":
         return os.path.join(ROOT, *_split(setting))
-    data = _child(ROOT, "data")
-    if data:
-        nested = _child(data, "DistVRT_v5")
+
+    data_folder = _child(ROOT, "data")
+    if data_folder:
+        nested = _child(data_folder, "DistVRT_v5")
         if nested:
             return nested
+
         try:
-            for d in os.listdir(data):
-                if _child(os.path.join(data, d), "Visit1") or any(
-                        x.lower().startswith("visit") for x in os.listdir(os.path.join(data, d))
-                        if os.path.isdir(os.path.join(data, d, x))):
-                    return data
+            for entry in os.listdir(data_folder):
+                entry_path = os.path.join(data_folder, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+
+                if _child(entry_path, "Visit1"):
+                    return data_folder
+
+                if any(
+                    name.lower().startswith("visit")
+                    for name in os.listdir(entry_path)
+                    if os.path.isdir(os.path.join(entry_path, name))
+                ):
+                    return data_folder
         except OSError:
             pass
-        return os.path.join(data, "DistVRT_v5")
+
+        return os.path.join(data_folder, "DistVRT_v5")
+
     return os.path.join(ROOT, "data", "DistVRT_v5")
 
 
 DATA_DIR = _resolve_data_dir()
 
-LISTS_DIR = APP_DIR                      # the *_cell.mat files sit next to main.py
+# Separate workbook used to queue completed runs for scoring.
+SCORING_LOG_FILE = cfg(
+    "paths",
+    "scoring_log_file",
+    r"\\bl-sphs-sphs\GustafsonLab\Projects\DistVRT_v5\DistVRT_v5_DataScoringLog.xlsx",
+)
+
+LISTS_DIR = APP_DIR
 WORD_LIST_MAT = os.path.join(LISTS_DIR, "BalancedWordLists_cell.mat")
 DIST_LIST_MAT = os.path.join(LISTS_DIR, "NarrowDistractList_cell.mat")
 ASSETS_DIR = os.path.join(APP_DIR, "assets")
@@ -109,22 +130,26 @@ LOGS_DIR = os.path.join(APP_DIR, "logs")
 LOG_PREFIX = "DistVRT_v5"
 
 # First line of the log file, byte-for-byte as DistVRT_v5.m (ComputeAndReport) writes it.
-HEADER = ("ObsName, TimeStamp, VisitNum,WordLevel, NoiseCond, SNR, DistCond, DistLevel, "
-          "DistTime, RunNum, TrialNum, StimTalker, ListNum, StimWord, DistPresent, "
-          "DistItem, TargetSide, Response, ")
+HEADER = (
+    "ObsName, TimeStamp, VisitNum,WordLevel, NoiseCond, SNR, DistCond, DistLevel, "
+    "DistTime, RunNum, TrialNum, StimTalker, ListNum, StimWord, DistPresent, "
+    "DistItem, TargetSide, Response, "
+)
 
 
-def matlab_num2str(x):
-    """Reproduce MATLAB num2str for a scalar (integers print without '.0')."""
-    x = float(x)
-    if math.isnan(x):
+def matlab_num2str(value):
+    """Reproduce MATLAB num2str for a scalar."""
+    value = float(value)
+
+    if math.isnan(value):
         return "NaN"
-    if math.isinf(x):
-        return "Inf" if x > 0 else "-Inf"
-    if x == int(x):
-        return str(int(x))
-    digits = max(int(math.floor(math.log10(abs(x)))) + 5, 5)
-    return ("%." + str(digits) + "g") % x
+    if math.isinf(value):
+        return "Inf" if value > 0 else "-Inf"
+    if value == int(value):
+        return str(int(value))
+
+    digits = max(int(math.floor(math.log10(abs(value)))) + 5, 5)
+    return (("%." + str(digits) + "g") % value)
 
 
 def subject_dir(subject_id):
@@ -136,19 +161,27 @@ def visit_dir(subject_id, visit):
 
 
 def log_file(subject_id, visit):
-    return os.path.join(visit_dir(subject_id, visit), "%s_%s" % (LOG_PREFIX, subject_id))
+    return os.path.join(
+        visit_dir(subject_id, visit),
+        "%s_%s" % (LOG_PREFIX, subject_id),
+    )
 
 
 def extras_dir(subject_id):
-    # Kept OUTSIDE Visit<N> so the Visit folder holds only what MATLAB puts there.
+    # Kept outside Visit<N>.
     return os.path.join(subject_dir(subject_id), "Extras")
 
 
 def questionnaire_dir():
-    """One folder for all questionnaires, inside the data folder."""
+    """Return the questionnaire folder inside the configured data folder."""
     return os.path.join(DATA_DIR, "Questionnaires")
 
 
 def wav_name(subject_id, snr, dist_cond, run, trial):
     return "%s_%s_%s_%s_%s.wav" % (
-        subject_id, matlab_num2str(snr), int(dist_cond), int(run), int(trial))
+        subject_id,
+        matlab_num2str(snr),
+        int(dist_cond),
+        int(run),
+        int(trial),
+    )
