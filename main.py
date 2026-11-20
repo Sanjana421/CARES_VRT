@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import sys
 import traceback
 from datetime import datetime
@@ -131,18 +132,36 @@ def main():
                 target_spl_dist=TARGET_SPL_DIST,
             )
 
+            # MATLAB drops six apples at random trials from 1–24,
+            # then drops the seventh after trial 25.
+            apple_trials = set(random.sample(range(1, 25), 6))
+            apple_trials.add(25)
+            apple_state = {"fallen": 0, "seen": set()}
+
+            def record_apple_fall(completed_trial):
+                if (
+                    completed_trial in apple_trials
+                    and completed_trial not in apple_state["seen"]
+                ):
+                    apple_state["seen"].add(completed_trial)
+                    apple_state["fallen"] += 1
+                    child.update_progress(apple_state["fallen"], 7)
+
             controller = TrialController(stimuli, engine)
             controller.data_manager = dm
             window.controller = controller
 
             def handle_trial_ready(trial_number, total_trials, word):
+                # Trial N is called after trial N-1 has been answered.
+                if trial_number > 1:
+                    record_apple_fall(trial_number - 1)
+
                 window.update_trial_info(
                     trial_number,
                     total_trials,
                     setup["snr"],
                 )
                 window.update_target_word(word)
-                child.update_progress(trial_number, total_trials)
 
             def on_questionnaire_complete(answers):
                 dm.save_questionnaire(
@@ -154,6 +173,9 @@ def main():
                 child.show_waiting_screen()
 
             def handle_list_complete(_responses):
+                # MATLAB's final apple drop occurs after trial 25 is answered.
+                record_apple_fall(25)
+
                 if state["engine"] is not None:
                     state["engine"].stop_noise()
 
@@ -196,8 +218,11 @@ def main():
             controller.on_list_complete = handle_list_complete
             controller.on_error = lambda message: to_setup(message)
 
-            child.display_progress = 0
+            # Reset the ring for this list. Its seven stages correspond to
+            # the seven randomized apple-drop events.
+            child.display_progress = 0.0
             child.current_progress = 0
+            child.update_progress(0, 7)
             child.update()
             child.stacked_layout.setCurrentWidget(child.progress_page)
             child.show_prepare_sequence(
